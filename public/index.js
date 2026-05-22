@@ -1,139 +1,414 @@
-"use strict";
-/**
- * @type {HTMLFormElement}
- */
-const form = document.getElementById("sj-form");
-/**
- * @type {HTMLInputElement}
- */
-const address = document.getElementById("sj-address");
-/**
- * @type {HTMLInputElement}
- */
-const searchEngine = document.getElementById("sj-search-engine");
-/**
- * @type {HTMLParagraphElement}
- */
-const error = document.getElementById("sj-error");
-/**
- * @type {HTMLPreElement}
- */
-const errorCode = document.getElementById("sj-error-code");
+/* ============================================================
+   Scramjet MW — index.js
+   Tab manager, AB cloak, panic switch, battery, favicon/title
+   detection, shortcuts, fullscreen, panic key
+   ============================================================ */
 
-const { ScramjetController } = $scramjetLoadController();
+(function () {
+  "use strict";
 
-const scramjet = new ScramjetController({
-	files: {
-		wasm: "/scram/scramjet.wasm.wasm",
-		all: "/scram/scramjet.all.js",
-		sync: "/scram/scramjet.sync.js",
-	},
-});
+  /* ---- State ---- */
+  const tabs = [];
+  let activeTabId = null;
 
-scramjet.init();
+  /* ---- DOM refs ---- */
+  const tabsContainer   = document.getElementById("tabs-container");
+  const framesContainer = document.getElementById("frames-container");
+  const homeScreen      = document.getElementById("home-screen");
+  const frameArea       = document.getElementById("frame-area");
+  const addressInput    = document.getElementById("sj-address");
+  const searchForm      = document.getElementById("sj-form");
+  const searchEngine    = document.getElementById("sj-search-engine");
+  const btnNewTab       = document.getElementById("btn-new-tab");
+  const btnHome         = document.getElementById("btn-home");
+  const btnBack         = document.getElementById("btn-back");
+  const btnForward      = document.getElementById("btn-forward");
+  const btnReload       = document.getElementById("btn-reload");
+  const btnPanic        = document.getElementById("btn-panic");
+  const btnCloak        = document.getElementById("btn-cloak");
+  const btnFullscreen   = document.getElementById("btn-fullscreen");
+  const panicOverlay    = document.getElementById("panic-overlay");
+  const cloakShell      = document.getElementById("cloak-shell");
+  const cloakFrame      = document.getElementById("cloak-frame");
+  const cloakExitBtn    = document.getElementById("cloak-exit-btn");
+  const cloakUrlText    = document.getElementById("cloak-url-text");
+  const batteryFill     = document.getElementById("battery-fill");
+  const batteryText     = document.getElementById("battery-text");
 
-const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+  /* ===============================================================
+     UTILITY
+  =============================================================== */
+  function generateId() {
+    return "_" + Math.random().toString(36).slice(2, 9);
+  }
 
-form.addEventListener("submit", async (event) => {
-	event.preventDefault();
+  function isUrl(str) {
+    if (/^https?:\/\//i.test(str)) return true;
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(str)) return true;
+    return false;
+  }
 
-	try {
-		await registerSW();
-	} catch (err) {
-		error.textContent = "Failed to register service worker.";
-		errorCode.textContent = err.toString();
-		throw err;
-	}
-
-	const url = search(address.value, searchEngine.value);
-
-	let wispUrl =
-		(location.protocol === "https:" ? "wss" : "ws") +
-		"://" +
-		location.host +
-		"/wisp/";
-	if ((await connection.getTransport()) !== "/libcurl/index.mjs") {
-		await connection.setTransport("/libcurl/index.mjs", [
-			{ websocket: wispUrl },
-		]);
-	}
-	const frame = scramjet.createFrame();
-	frame.frame.id = "sj-frame";
-	document.body.appendChild(frame.frame);
-	frame.go(url);
-});
-
-// Tabs
-document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-    });
-});
-
-// Shortcuts -> proxy
-document.querySelectorAll('.shortcut').forEach(s => {
-    s.addEventListener('click', (e) => {
-        e.preventDefault();
-        const url = s.dataset.url;
-        const input = document.getElementById('sj-address');
-        input.value = url;
-        document.getElementById('sj-form').dispatchEvent(new Event('submit'));
-    });
-});
-
-// AB Cloak - opens current page inside about:blank
-function abCloak() {
-    const win = window.open('about:blank', '_blank');
-    if (!win || win.closed) {
-        alert('Popup blocked! Please allow popups for this site.');
-        return;
+  function buildProxyUrl(input) {
+    let url = input.trim();
+    if (!url) return null;
+    if (isUrl(url)) {
+      if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    } else {
+      const se = searchEngine.value || "https://www.google.com/search?q=%s";
+      url = se.replace("%s", encodeURIComponent(url));
     }
-    const iframe = win.document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:none;margin:0;padding:0;';
-    iframe.src = location.href;
-    win.document.body.style.margin = '0';
-    win.document.title = 'about:blank';
-    win.document.body.appendChild(iframe);
-    location.replace('https://www.google.com');
-}
+    try {
+      if (typeof __scramjet$ !== "undefined") {
+        return __scramjet$.rewrite(url);
+      }
+      return "/scram/" + encodeURIComponent(url);
+    } catch {
+      return "/scram/" + encodeURIComponent(url);
+    }
+  }
 
-document.getElementById('cloak-btn')?.addEventListener('click', abCloak);
-document.getElementById('ab-cloak')?.addEventListener('click', abCloak);
+  /* ===============================================================
+     TABS
+  =============================================================== */
+  function createTab(url, switchTo = true) {
+    const id = generateId();
+    const tab = {
+      id,
+      url: url || null,
+      title: "New Tab",
+      favicon: null,
+      iframe: null,
+      tabEl: null,
+    };
 
-// Tab Cloak
-const cloaks = {
-    none: { title: 'Scramjet', icon: 'favicon.webp' },
-    google: { title: 'Google', icon: 'https://www.google.com/favicon.ico' },
-    classroom: { title: 'Home', icon: 'https://ssl.gstatic.com/classroom/favicon.png' },
-    docs: { title: 'Google Docs', icon: 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico' },
-    drive: { title: 'My Drive - Google Drive', icon: 'https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png' },
-    canvas: { title: 'Dashboard', icon: 'https://du11hjcvx0uqb.cloudfront.net/dist/images/favicon-e10d657a73.ico' }
-};
+    /* iframe */
+    const iframe = document.createElement("iframe");
+    iframe.className = "browser-frame";
+    iframe.setAttribute("sandbox", "allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation");
+    framesContainer.appendChild(iframe);
+    tab.iframe = iframe;
 
-document.getElementById('cloak-preset')?.addEventListener('change', (e) => {
-    const c = cloaks[e.target.value];
-    document.title = c.title;
-    let link = document.querySelector("link[rel*='icon']") || document.createElement('link');
-    link.rel = 'shortcut icon';
-    link.href = c.icon;
+    /* tab element */
+    const tabEl = document.createElement("div");
+    tabEl.className = "tab";
+    tabEl.dataset.id = id;
+    tabEl.innerHTML = `
+      <span class="tab-favicon-placeholder">
+        <svg style="width:13px;height:13px;opacity:.35" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+      </span>
+      <span class="tab-title">New Tab</span>
+      <button class="tab-close" title="Close tab">✕</button>
+    `;
+    tabEl.addEventListener("click", (e) => {
+      if (!e.target.closest(".tab-close")) switchTab(id);
+    });
+    tabEl.querySelector(".tab-close").addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeTab(id);
+    });
+    tabsContainer.appendChild(tabEl);
+    tab.tabEl = tabEl;
+
+    tabs.push(tab);
+
+    /* iframe load events for title/favicon */
+    iframe.addEventListener("load", () => {
+      try {
+        const doc = iframe.contentDocument;
+        if (!doc) return;
+        /* title */
+        const title = doc.title || tab.url || "New Tab";
+        updateTabMeta(id, { title });
+        /* favicon */
+        const faviconLink = doc.querySelector("link[rel~='icon']");
+        if (faviconLink && faviconLink.href) {
+          updateTabMeta(id, { favicon: faviconLink.href });
+        } else {
+          try {
+            const origin = new URL(tab.url || "").origin;
+            if (origin) updateTabMeta(id, { favicon: origin + "/favicon.ico" });
+          } catch {}
+        }
+      } catch {/* cross-origin blocked — that's fine */}
+    });
+
+    if (url) {
+      const proxyUrl = buildProxyUrl(url);
+      if (proxyUrl) {
+        iframe.src = proxyUrl;
+        tab.url = url;
+      }
+    }
+
+    if (switchTo) switchTab(id);
+    return id;
+  }
+
+  function updateTabMeta(id, { title, favicon } = {}) {
+    const tab = tabs.find(t => t.id === id);
+    if (!tab) return;
+    if (title !== undefined) tab.title = title;
+    if (favicon !== undefined) tab.favicon = favicon;
+    renderTabEl(tab);
+  }
+
+  function renderTabEl(tab) {
+    const el = tab.tabEl;
+    if (!el) return;
+    const titleEl = el.querySelector(".tab-title");
+    const faviconSlot = el.querySelector(".tab-favicon-placeholder, .tab-favicon");
+    if (titleEl) titleEl.textContent = tab.title || "New Tab";
+    if (faviconSlot && tab.favicon) {
+      const img = document.createElement("img");
+      img.className = "tab-favicon";
+      img.src = tab.favicon;
+      img.alt = "";
+      img.width = 14;
+      img.height = 14;
+      img.onerror = () => { img.style.display = "none"; };
+      faviconSlot.replaceWith(img);
+    }
+  }
+
+  function switchTab(id) {
+    const tab = tabs.find(t => t.id === id);
+    if (!tab) return;
+    activeTabId = id;
+
+    /* show/hide frames */
+    tabs.forEach(t => {
+      t.iframe.classList.toggle("active", t.id === id);
+      t.tabEl.classList.toggle("active", t.id === id);
+    });
+
+    /* show home or frame area */
+    if (tab.url) {
+      homeScreen.style.display = "none";
+      frameArea.style.display = "flex";
+    } else {
+      homeScreen.style.display = "";
+      frameArea.style.display = "none";
+    }
+
+    /* address bar */
+    addressInput.value = tab.url || "";
+  }
+
+  function closeTab(id) {
+    const idx = tabs.findIndex(t => t.id === id);
+    if (idx === -1) return;
+    const tab = tabs[idx];
+    tab.iframe.remove();
+    tab.tabEl.remove();
+    tabs.splice(idx, 1);
+
+    if (tabs.length === 0) {
+      createTab(null);
+    } else if (activeTabId === id) {
+      switchTab(tabs[Math.max(0, idx - 1)].id);
+    }
+  }
+
+  function navigateActiveTab(url) {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (!tab) return;
+    const proxyUrl = buildProxyUrl(url);
+    if (!proxyUrl) return;
+    tab.url = url;
+    tab.title = url;
+    tab.favicon = null;
+    renderTabEl(tab);
+    tab.iframe.src = proxyUrl;
+    homeScreen.style.display = "none";
+    frameArea.style.display = "flex";
+    tab.iframe.classList.add("active");
+  }
+
+  /* ===============================================================
+     SEARCH FORM
+  =============================================================== */
+  searchForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const val = addressInput.value.trim();
+    if (!val) return;
+    navigateActiveTab(val);
+  });
+
+  /* address bar click → select all */
+  addressInput.addEventListener("focus", () => addressInput.select());
+
+  /* ===============================================================
+     TOOLBAR BUTTONS
+  =============================================================== */
+  btnNewTab.addEventListener("click", () => createTab(null));
+  btnHome.addEventListener("click", () => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (tab) {
+      tab.url = null;
+      tab.title = "New Tab";
+      tab.favicon = null;
+      renderTabEl(tab);
+      tab.iframe.src = "about:blank";
+      addressInput.value = "";
+    }
+    homeScreen.style.display = "";
+    frameArea.style.display = "none";
+  });
+
+  btnBack.addEventListener("click", () => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    try { tab?.iframe?.contentWindow?.history?.back(); } catch {}
+  });
+
+  btnForward.addEventListener("click", () => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    try { tab?.iframe?.contentWindow?.history?.forward(); } catch {}
+  });
+
+  btnReload.addEventListener("click", () => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    try {
+      tab?.iframe?.contentWindow?.location?.reload();
+    } catch {
+      if (tab?.iframe?.src) tab.iframe.src = tab.iframe.src;
+    }
+  });
+
+  /* ===============================================================
+     SHORTCUTS
+  =============================================================== */
+  document.querySelectorAll(".shortcut").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const url = btn.dataset.url;
+      if (!url) return;
+      /* navigate active tab if it's a "new tab", else open new tab */
+      const tab = tabs.find(t => t.id === activeTabId);
+      if (tab && !tab.url) {
+        navigateActiveTab(url);
+      } else {
+        const id = createTab(url, false);
+        switchTab(id);
+      }
+    });
+  });
+
+  /* ===============================================================
+     PANIC SWITCH
+  =============================================================== */
+  function triggerPanic() {
+    panicOverlay.style.display = "block";
+    /* navigate top window to a neutral page */
+    try {
+      window.location.replace("https://google.com");
+    } catch {}
+  }
+
+  btnPanic.addEventListener("click", triggerPanic);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !cloakShell.style.display.includes("none") === false) {
+      /* Escape: if not in cloak, don't panic */
+    }
+    /* Double-tap shift = panic */
+    if (e.key === "F1") {
+      e.preventDefault();
+      triggerPanic();
+    }
+  });
+
+  /* ===============================================================
+     ABOUT:BLANK CLOAK
+  =============================================================== */
+  function openCloak(srcUrl) {
+    cloakShell.style.display = "flex";
+    if (srcUrl) {
+      cloakFrame.src = srcUrl;
+      cloakUrlText.textContent = "about:blank";
+    }
+    /* make the tab/title look like about:blank */
+    document.title = "";
+  }
+
+  function closeCloak() {
+    cloakShell.style.display = "none";
+    cloakFrame.src = "about:blank";
+    document.title = "Scramjet";
+  }
+
+  btnCloak.addEventListener("click", () => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (tab?.url) {
+      openCloak(tab.iframe.src || "about:blank");
+    } else {
+      openCloak("about:blank");
+    }
+  });
+
+  cloakExitBtn.addEventListener("click", closeCloak);
+
+  /* Auto-cloak on load: open in about:blank frame immediately */
+  function autoCloak() {
+    /* wrap the whole app in a blank-titled window appearance */
+    document.title = "";
+    /* we already have blank title; favicon trick */
+    const link = document.querySelector("link[rel~='icon']") || document.createElement("link");
+    link.rel = "icon";
+    link.href = "data:,";
     document.head.appendChild(link);
-    localStorage.setItem('cloak', e.target.value);
-});
+  }
+  autoCloak();
 
-// Load saved cloak
-const savedCloak = localStorage.getItem('cloak');
-if (savedCloak && cloaks[savedCloak]) {
-    document.getElementById('cloak-preset').value = savedCloak;
-    document.getElementById('cloak-preset').dispatchEvent(new Event('change'));
-}
-
-// Panic key
-document.addEventListener('keydown', (e) => {
-    if (e.key === '`' && document.getElementById('panic-toggle')?.checked) {
-        location.replace('https://www.google.com');
+  /* ===============================================================
+     FULLSCREEN
+  =============================================================== */
+  btnFullscreen.addEventListener("click", () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.();
+      document.getElementById("app").classList.add("fullscreen-mode");
+    } else {
+      document.exitFullscreen?.();
+      document.getElementById("app").classList.remove("fullscreen-mode");
     }
-});
+  });
 
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement) {
+      document.getElementById("app").classList.remove("fullscreen-mode");
+    }
+  });
+
+  /* ===============================================================
+     BATTERY
+  =============================================================== */
+  function updateBatteryUI(battery) {
+    const pct = Math.round(battery.level * 100);
+    batteryText.textContent = pct + "%";
+    batteryFill.style.width = pct + "%";
+    if (pct <= 20) {
+      batteryFill.style.background = "#f87171";
+    } else if (pct <= 50) {
+      batteryFill.style.background = "#facc15";
+    } else {
+      batteryFill.style.background = "#4ade80";
+    }
+  }
+
+  if ("getBattery" in navigator) {
+    navigator.getBattery().then(battery => {
+      updateBatteryUI(battery);
+      battery.addEventListener("levelchange", () => updateBatteryUI(battery));
+      battery.addEventListener("chargingchange", () => updateBatteryUI(battery));
+    }).catch(() => {
+      batteryText.textContent = "N/A";
+    });
+  } else {
+    batteryText.textContent = "N/A";
+    document.getElementById("battery-indicator").title = "Battery API not available";
+  }
+
+  /* ===============================================================
+     INIT: open first tab
+  =============================================================== */
+  createTab(null);
+
+})();
