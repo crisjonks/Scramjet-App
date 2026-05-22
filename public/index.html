@@ -3,148 +3,172 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
-  <title>pysium</title>
-  <link rel="shortcut icon" href="favicon.webp" />
+  <title>Google Drive</title>
+  <link rel="icon" id="cloak-favicon" href="favicon.webp" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
   <script src="/scram/scramjet.all.js"></script>
   <script src="/baremux/index.js"></script>
-
   <link rel="stylesheet" href="index.css" />
   <script src="register-sw.js" defer></script>
   <script src="search.js" defer></script>
   <script src="index.js" defer></script>
 </head>
-<body data-cloaked="false">
+<body>
 
-  <!-- Ambient BG blobs -->
-  <div class="bg-canvas" aria-hidden="true">
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
-    <div class="blob blob-3"></div>
-    <div class="noise"></div>
+<!-- TAB BAR -->
+<div id="tab-bar">
+  <div id="tab-list"></div>
+  <button id="new-tab-btn" title="New Tab">+</button>
+</div>
+
+<!-- MAIN SHELL (shown per tab) -->
+<div id="main-shell">
+
+  <!-- TOP BAR -->
+  <div id="top-bar">
+    <button class="top-btn" id="home-btn" title="Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12L12 4l9 8"/><path d="M5 10v9a1 1 0 001 1h4v-4h4v4h4a1 1 0 001-1v-9"/></svg>
+    </button>
+    <button class="top-btn" id="back-btn" title="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <button class="top-btn" id="forward-btn" title="Forward">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18l6-6-6-6"/></svg>
+    </button>
+    <button class="top-btn" id="reload-btn" title="Reload">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4v5h5"/><path d="M20 20v-5h-5"/><path d="M4 9a8 8 0 0114.93-2M20 15a8 8 0 01-14.93 2"/></svg>
+    </button>
+
+    <div id="address-bar-wrap">
+      <span id="lock-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+      </span>
+      <input id="address-bar" type="text" placeholder="Search or enter URL…" autocomplete="off" spellcheck="false" />
+    </div>
+
+    <button class="top-btn" id="fullscreen-btn" title="Fullscreen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+    </button>
+
+    <div id="battery-wrap" title="Battery">
+      <svg id="battery-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="2" y="7" width="18" height="10" rx="2"/>
+        <path d="M22 11v2"/>
+        <rect id="battery-fill" x="4" y="9" width="10" height="6" rx="1" fill="currentColor" stroke="none"/>
+      </svg>
+      <span id="battery-pct">–%</span>
+    </div>
+
+    <button class="top-btn" id="panic-btn" title="Panic (Alt+X)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    </button>
   </div>
 
-  <!-- Top bar -->
-  <header class="topbar" id="topbar">
-    <div class="topbar-left">
-      <button class="icon-btn" id="home-btn" title="Home" aria-label="Home">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      </button>
-      <div class="wordmark">
-        <span class="wordmark-py">py</span><span class="wordmark-sium">sium</span>
+  <!-- HOME PAGE -->
+  <div id="home-page">
+    <div id="home-inner">
+      <div id="wordmark">pysium</div>
+      <p id="home-sub">your private window to the web</p>
+
+      <form id="sj-form">
+        <input id="sj-search-engine" value="https://www.google.com/search?q=%s" type="hidden" />
+        <div id="search-wrap">
+          <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input id="sj-address" type="text" placeholder="Search the web freely…" autocomplete="off" spellcheck="false" />
+        </div>
+        <p id="sj-error"></p>
+        <pre id="sj-error-code"></pre>
+      </form>
+
+      <!-- SHORTCUTS -->
+      <div id="shortcuts">
+        <a class="shortcut" data-url="https://www.youtube.com" href="#">
+          <div class="shortcut-icon sc-yt">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 00-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 00.5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 002.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 002.1-2.1c.5-1.9.5-5.8.5-5.8s0-3.9-.5-5.8zM9.75 15.5v-7l6.5 3.5-6.5 3.5z"/></svg>
+          </div>
+          <span>YouTube</span>
+        </a>
+        <a class="shortcut" data-url="https://www.reddit.com" href="#">
+          <div class="shortcut-icon sc-reddit">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>
+          </div>
+          <span>Reddit</span>
+        </a>
+        <a class="shortcut" data-url="https://x.com" href="#">
+          <div class="shortcut-icon sc-x">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          </div>
+          <span>X</span>
+        </a>
+        <a class="shortcut" data-url="https://discord.com/app" href="#">
+          <div class="shortcut-icon sc-discord">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+          </div>
+          <span>Discord</span>
+        </a>
+        <a class="shortcut" data-url="https://www.instagram.com" href="#">
+          <div class="shortcut-icon sc-insta">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
+          </div>
+          <span>Instagram</span>
+        </a>
+        <a class="shortcut" data-url="https://www.tiktok.com" href="#">
+          <div class="shortcut-icon sc-tiktok">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+          </div>
+          <span>TikTok</span>
+        </a>
       </div>
     </div>
-
-    <div class="topbar-center" id="tab-bar">
-      <!-- tabs injected by JS -->
-      <button class="tab-new-btn" id="new-tab-btn" title="New tab" aria-label="New tab">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      </button>
-    </div>
-
-    <div class="topbar-right">
-      <div class="battery-widget" id="battery-widget" title="Battery">
-        <svg class="battery-icon" viewBox="0 0 28 14" fill="none">
-          <rect x="1" y="1" width="22" height="12" rx="3" stroke="currentColor" stroke-width="1.5"/>
-          <rect x="23.5" y="4" width="3" height="6" rx="1.5" fill="currentColor" opacity="0.6"/>
-          <rect class="battery-fill" x="3" y="3" width="0" height="8" rx="1.5" fill="currentColor"/>
-        </svg>
-        <span class="battery-pct" id="battery-pct">--%</span>
-      </div>
-      <button class="icon-btn" id="fullscreen-btn" title="Fullscreen" aria-label="Fullscreen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-      </button>
-      <button class="icon-btn cloak-btn" id="cloak-btn" title="About:blank cloak" aria-label="Cloak tab">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-      </button>
-      <button class="icon-btn panic-btn" id="panic-btn" title="Panic switch (redirects away)" aria-label="Panic">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-      </button>
-    </div>
-  </header>
-
-  <!-- Main proxy frame area -->
-  <main class="main-content" id="main-content">
-
-    <!-- Home screen -->
-    <section class="home-screen" id="home-screen">
-
-      <div class="search-section">
-        <div class="search-glass">
-          <form id="sj-form">
-            <input id="sj-search-engine" value="https://www.google.com/search?q=%s" type="hidden" />
-            <div class="search-row">
-              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input id="sj-address" type="text" placeholder="Search or enter a URL…" autocomplete="off" spellcheck="false" />
-              <button type="submit" class="search-go" aria-label="Go">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div id="sj-error-wrap" class="error-wrap hidden">
-          <p id="sj-error"></p>
-          <pre id="sj-error-code"></pre>
-        </div>
-      </div>
-
-      <!-- Shortcuts -->
-      <div class="shortcuts-section">
-        <h2 class="shortcuts-label">Quick Access</h2>
-        <div class="shortcuts-grid">
-          <a class="shortcut-card" data-site="https://youtube.com" href="#" title="YouTube">
-            <div class="sc-icon sc-yt">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.19a3.02 3.02 0 00-2.12-2.14C19.54 3.5 12 3.5 12 3.5s-7.54 0-9.38.55A3.02 3.02 0 00.5 6.19 31.3 31.3 0 000 12a31.3 31.3 0 00.5 5.81 3.02 3.02 0 002.12 2.14C4.46 20.5 12 20.5 12 20.5s7.54 0 9.38-.55a3.02 3.02 0 002.12-2.14A31.3 31.3 0 0024 12a31.3 31.3 0 00-.5-5.81zM9.75 15.5v-7l6.5 3.5-6.5 3.5z"/></svg>
-            </div>
-            <span>YouTube</span>
-          </a>
-          <a class="shortcut-card" data-site="https://reddit.com" href="#" title="Reddit">
-            <div class="sc-icon sc-reddit">
-              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path fill="white" d="M19.99 12a2 2 0 00-2-2 2 2 0 00-1.34.52C15.52 9.74 14.07 9.4 12.5 9.3l.7-3.27 2.26.47a1.4 1.4 0 102.64-.13 1.4 1.4 0 00-2.6.52l-2.52-.52a.3.3 0 00-.35.22l-.78 3.65c-1.6.08-3.08.42-4.2 1.22A2 2 0 005 12a2 2 0 00.8 1.61 3.37 3.37 0 000 .39c0 2.21 2.69 4 6 4s6-1.79 6-4a3.37 3.37 0 000-.39 2 2 0 00.19-3.61zM9 13.5a1 1 0 111 1 1 1 0 01-1-1zm5.57 2.5a3.13 3.13 0 01-2.57.6 3.13 3.13 0 01-2.57-.6.25.25 0 01.35-.35 2.64 2.64 0 002.22.46 2.64 2.64 0 002.22-.46.25.25 0 01.35.35zM15 14.5a1 1 0 111-1 1 1 0 01-1 1z"/></svg>
-            </div>
-            <span>Reddit</span>
-          </a>
-          <a class="shortcut-card" data-site="https://x.com" href="#" title="X">
-            <div class="sc-icon sc-x">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.261 5.632 5.903-5.632zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-            </div>
-            <span>X / Twitter</span>
-          </a>
-          <a class="shortcut-card" data-site="https://discord.com/app" href="#" title="Discord">
-            <div class="sc-icon sc-discord">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
-            </div>
-            <span>Discord</span>
-          </a>
-          <a class="shortcut-card" data-site="https://instagram.com" href="#" title="Instagram">
-            <div class="sc-icon sc-insta">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
-            </div>
-            <span>Instagram</span>
-          </a>
-          <a class="shortcut-card" data-site="https://tiktok.com" href="#" title="TikTok">
-            <div class="sc-icon sc-tiktok">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.19 8.19 0 004.79 1.54V6.78a4.85 4.85 0 01-1.02-.09z"/></svg>
-            </div>
-            <span>TikTok</span>
-          </a>
-        </div>
-      </div>
-    </section>
-
-    <!-- Proxy iframe -->
-    <iframe id="proxy-frame" class="proxy-frame hidden" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-storage-access-by-user-activation" allow="fullscreen"></iframe>
-
-  </main>
-
-  <!-- Cloak frame (for AB cloak) -->
-  <div class="cloak-overlay hidden" id="cloak-overlay">
-    <iframe id="cloak-frame" src="about:blank" title="Blank"></iframe>
   </div>
+
+  <!-- PROXY IFRAME -->
+  <iframe id="proxy-frame" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads" allow="fullscreen"></iframe>
+
+</div>
+
+<!-- CLOAK SETTINGS PANEL -->
+<div id="cloak-panel" class="glass-panel hidden">
+  <div class="panel-header">
+    <span>AB Cloak</span>
+    <button class="panel-close" data-panel="cloak-panel">✕</button>
+  </div>
+  <div class="panel-body">
+    <label class="toggle-row">
+      <span>Enable cloak</span>
+      <input type="checkbox" id="cloak-toggle" checked />
+    </label>
+    <div class="field-group">
+      <label>Tab title</label>
+      <input type="text" id="cloak-title" placeholder="Google Drive" />
+    </div>
+    <div class="field-group">
+      <label>Favicon URL</label>
+      <input type="text" id="cloak-favicon-url" placeholder="https://drive.google.com/favicon.ico" />
+    </div>
+    <div class="preset-row">
+      <button class="preset-btn" data-title="Google Drive" data-favicon="https://drive.google.com/favicon.ico">Drive</button>
+      <button class="preset-btn" data-title="Canvas" data-favicon="https://du11hjcvx0uqb.cloudfront.net/br/dist/images/favicon-e10d657a73.ico">Canvas</button>
+      <button class="preset-btn" data-title="Classroom" data-favicon="https://ssl.gstatic.com/classroom/favicon.png">Classroom</button>
+      <button class="preset-btn" data-title="Docs" data-favicon="https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico">Docs</button>
+    </div>
+    <button id="cloak-apply" class="apply-btn">Apply</button>
+    <button id="ab-cloak-btn" class="apply-btn secondary">Open in about:blank</button>
+  </div>
+</div>
+
+<!-- SETTINGS TRIGGER -->
+<div id="fab-row">
+  <button id="cloak-fab" title="Cloak Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    <span>Cloak</span>
+  </button>
+</div>
+
+<div id="overlay" class="hidden"></div>
 
 </body>
 </html>
