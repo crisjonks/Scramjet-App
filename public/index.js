@@ -1,414 +1,367 @@
 /* ============================================================
-   Scramjet MW — index.js
-   Tab manager, AB cloak, panic switch, battery, favicon/title
-   detection, shortcuts, fullscreen, panic key
+   PYSIUM — index.js
+   Tabs, AB Cloak, Panic, Battery, Favicon/Title detection
    ============================================================ */
 
 (function () {
   "use strict";
 
-  /* ---- State ---- */
-  const tabs = [];
-  let activeTabId = null;
+  // ── Config ────────────────────────────────────────────────
+  const PANIC_URL  = "https://classroom.google.com";
+  const PANIC_KEY  = "Escape"; // hold Escape for 1s = panic
+  const AUTO_CLOAK = true;     // cloak on load (about:blank wrapper)
 
-  /* ---- DOM refs ---- */
-  const tabsContainer   = document.getElementById("tabs-container");
-  const framesContainer = document.getElementById("frames-container");
-  const homeScreen      = document.getElementById("home-screen");
-  const frameArea       = document.getElementById("frame-area");
-  const addressInput    = document.getElementById("sj-address");
-  const searchForm      = document.getElementById("sj-form");
-  const searchEngine    = document.getElementById("sj-search-engine");
-  const btnNewTab       = document.getElementById("btn-new-tab");
-  const btnHome         = document.getElementById("btn-home");
-  const btnBack         = document.getElementById("btn-back");
-  const btnForward      = document.getElementById("btn-forward");
-  const btnReload       = document.getElementById("btn-reload");
-  const btnPanic        = document.getElementById("btn-panic");
-  const btnCloak        = document.getElementById("btn-cloak");
-  const btnFullscreen   = document.getElementById("btn-fullscreen");
-  const panicOverlay    = document.getElementById("panic-overlay");
-  const cloakShell      = document.getElementById("cloak-shell");
-  const cloakFrame      = document.getElementById("cloak-frame");
-  const cloakExitBtn    = document.getElementById("cloak-exit-btn");
-  const cloakUrlText    = document.getElementById("cloak-url-text");
-  const batteryFill     = document.getElementById("battery-fill");
-  const batteryText     = document.getElementById("battery-text");
+  // ── DOM refs ──────────────────────────────────────────────
+  const homeScreen    = document.getElementById("home-screen");
+  const proxyFrame    = document.getElementById("proxy-frame");
+  const sjForm        = document.getElementById("sj-form");
+  const sjAddress     = document.getElementById("sj-address");
+  const sjError       = document.getElementById("sj-error");
+  const sjErrorCode   = document.getElementById("sj-error-code");
+  const errorWrap     = document.getElementById("sj-error-wrap");
+  const tabBar        = document.getElementById("tab-bar");
+  const newTabBtn     = document.getElementById("new-tab-btn");
+  const homeBtn       = document.getElementById("home-btn");
+  const cloakBtn      = document.getElementById("cloak-btn");
+  const panicBtn      = document.getElementById("panic-btn");
+  const fullscreenBtn = document.getElementById("fullscreen-btn");
+  const cloakOverlay  = document.getElementById("cloak-overlay");
+  const battPct       = document.getElementById("battery-pct");
+  const battFill      = document.querySelector(".battery-fill");
 
-  /* ===============================================================
-     UTILITY
-  =============================================================== */
-  function generateId() {
-    return "_" + Math.random().toString(36).slice(2, 9);
+  // ── AB / About:blank Cloak ────────────────────────────────
+  let cloakActive = false;
+
+  function activateCloak() {
+    cloakActive = true;
+    cloakOverlay.classList.remove("hidden");
+    cloakBtn.classList.add("active");
+    cloakBtn.title = "Disable cloak";
   }
 
-  function isUrl(str) {
-    if (/^https?:\/\//i.test(str)) return true;
-    if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(str)) return true;
-    return false;
+  function deactivateCloak() {
+    cloakActive = false;
+    cloakOverlay.classList.add("hidden");
+    cloakBtn.classList.remove("active");
+    cloakBtn.title = "About:blank cloak";
   }
 
-  function buildProxyUrl(input) {
-    let url = input.trim();
-    if (!url) return null;
-    if (isUrl(url)) {
-      if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-    } else {
-      const se = searchEngine.value || "https://www.google.com/search?q=%s";
-      url = se.replace("%s", encodeURIComponent(url));
+  cloakBtn.addEventListener("click", () => {
+    if (cloakActive) deactivateCloak();
+    else activateCloak();
+  });
+
+  if (AUTO_CLOAK) {
+    activateCloak();
+    // Click anywhere on cloak overlay to reveal (user opt-in)
+    cloakOverlay.addEventListener("click", deactivateCloak, { once: false });
+    cloakOverlay.title = "Click to enter Pysium";
+  }
+
+  // ── Panic switch ──────────────────────────────────────────
+  let panicHold = null;
+
+  function triggerPanic() {
+    // Replace the whole page context to avoid back-navigation to proxy
+    window.location.replace(PANIC_URL);
+  }
+
+  panicBtn.addEventListener("click", triggerPanic);
+
+  // Keyboard shortcut: hold Escape 0.8s
+  document.addEventListener("keydown", (e) => {
+    if (e.key === PANIC_KEY && !panicHold) {
+      panicHold = setTimeout(triggerPanic, 800);
     }
+  });
+  document.addEventListener("keyup", (e) => {
+    if (e.key === PANIC_KEY) {
+      clearTimeout(panicHold);
+      panicHold = null;
+    }
+  });
+
+  // ── Battery ───────────────────────────────────────────────
+  async function initBattery() {
+    if (!navigator.getBattery) return;
     try {
-      if (typeof __scramjet$ !== "undefined") {
-        return __scramjet$.rewrite(url);
-      }
-      return "/scram/" + encodeURIComponent(url);
-    } catch {
-      return "/scram/" + encodeURIComponent(url);
-    }
-  }
-
-  /* ===============================================================
-     TABS
-  =============================================================== */
-  function createTab(url, switchTo = true) {
-    const id = generateId();
-    const tab = {
-      id,
-      url: url || null,
-      title: "New Tab",
-      favicon: null,
-      iframe: null,
-      tabEl: null,
-    };
-
-    /* iframe */
-    const iframe = document.createElement("iframe");
-    iframe.className = "browser-frame";
-    iframe.setAttribute("sandbox", "allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation");
-    framesContainer.appendChild(iframe);
-    tab.iframe = iframe;
-
-    /* tab element */
-    const tabEl = document.createElement("div");
-    tabEl.className = "tab";
-    tabEl.dataset.id = id;
-    tabEl.innerHTML = `
-      <span class="tab-favicon-placeholder">
-        <svg style="width:13px;height:13px;opacity:.35" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
-      </span>
-      <span class="tab-title">New Tab</span>
-      <button class="tab-close" title="Close tab">✕</button>
-    `;
-    tabEl.addEventListener("click", (e) => {
-      if (!e.target.closest(".tab-close")) switchTab(id);
-    });
-    tabEl.querySelector(".tab-close").addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeTab(id);
-    });
-    tabsContainer.appendChild(tabEl);
-    tab.tabEl = tabEl;
-
-    tabs.push(tab);
-
-    /* iframe load events for title/favicon */
-    iframe.addEventListener("load", () => {
-      try {
-        const doc = iframe.contentDocument;
-        if (!doc) return;
-        /* title */
-        const title = doc.title || tab.url || "New Tab";
-        updateTabMeta(id, { title });
-        /* favicon */
-        const faviconLink = doc.querySelector("link[rel~='icon']");
-        if (faviconLink && faviconLink.href) {
-          updateTabMeta(id, { favicon: faviconLink.href });
+      const bat = await navigator.getBattery();
+      function updateBat() {
+        const pct = Math.round(bat.level * 100);
+        battPct.textContent = pct + "%";
+        // Fill bar: max inner width ~16px at 100%
+        const maxW = 16;
+        const w = Math.round((pct / 100) * maxW);
+        battFill.style.setProperty("--batt-w", w + "px");
+        battFill.setAttribute("width", w);
+        // Color hint
+        if (pct <= 20) {
+          battFill.style.fill = "hsl(355, 85%, 62%)";
+          battPct.style.color = "hsl(355, 85%, 62%)";
+        } else if (pct <= 40) {
+          battFill.style.fill = "hsl(40, 90%, 60%)";
+          battPct.style.color = "hsl(40, 90%, 60%)";
         } else {
-          try {
-            const origin = new URL(tab.url || "").origin;
-            if (origin) updateTabMeta(id, { favicon: origin + "/favicon.ico" });
-          } catch {}
+          battFill.style.fill = "";
+          battPct.style.color = "";
         }
-      } catch {/* cross-origin blocked — that's fine */}
-    });
-
-    if (url) {
-      const proxyUrl = buildProxyUrl(url);
-      if (proxyUrl) {
-        iframe.src = proxyUrl;
-        tab.url = url;
       }
-    }
-
-    if (switchTo) switchTab(id);
-    return id;
+      updateBat();
+      bat.addEventListener("levelchange", updateBat);
+      bat.addEventListener("chargingchange", updateBat);
+    } catch (_) {}
   }
+  initBattery();
 
-  function updateTabMeta(id, { title, favicon } = {}) {
-    const tab = tabs.find(t => t.id === id);
-    if (!tab) return;
-    if (title !== undefined) tab.title = title;
-    if (favicon !== undefined) tab.favicon = favicon;
-    renderTabEl(tab);
-  }
-
-  function renderTabEl(tab) {
-    const el = tab.tabEl;
-    if (!el) return;
-    const titleEl = el.querySelector(".tab-title");
-    const faviconSlot = el.querySelector(".tab-favicon-placeholder, .tab-favicon");
-    if (titleEl) titleEl.textContent = tab.title || "New Tab";
-    if (faviconSlot && tab.favicon) {
-      const img = document.createElement("img");
-      img.className = "tab-favicon";
-      img.src = tab.favicon;
-      img.alt = "";
-      img.width = 14;
-      img.height = 14;
-      img.onerror = () => { img.style.display = "none"; };
-      faviconSlot.replaceWith(img);
-    }
-  }
-
-  function switchTab(id) {
-    const tab = tabs.find(t => t.id === id);
-    if (!tab) return;
-    activeTabId = id;
-
-    /* show/hide frames */
-    tabs.forEach(t => {
-      t.iframe.classList.toggle("active", t.id === id);
-      t.tabEl.classList.toggle("active", t.id === id);
-    });
-
-    /* show home or frame area */
-    if (tab.url) {
-      homeScreen.style.display = "none";
-      frameArea.style.display = "flex";
+  // ── Fullscreen ────────────────────────────────────────────
+  fullscreenBtn.addEventListener("click", () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
     } else {
-      homeScreen.style.display = "";
-      frameArea.style.display = "none";
+      document.exitFullscreen().catch(() => {});
     }
+  });
 
-    /* address bar */
-    addressInput.value = tab.url || "";
+  document.addEventListener("fullscreenchange", () => {
+    const icon = fullscreenBtn.querySelector("svg");
+    if (document.fullscreenElement) {
+      icon.innerHTML = '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 0 2-2h3M3 16h3a2 2 0 0 0 2 2v3"/>';
+    } else {
+      icon.innerHTML = '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>';
+    }
+  });
+
+  // ── Tab system ────────────────────────────────────────────
+  let tabs      = [];    // [{ id, title, favicon, url, active }]
+  let activeTab = null;
+  let tabIdCounter = 0;
+
+  function createTab(url = null, title = "New Tab") {
+    const id = ++tabIdCounter;
+    const tab = { id, title, favicon: null, url };
+    tabs.push(tab);
+    renderTabs();
+    switchTab(id);
+    if (url) navigate(url);
+    return tab;
   }
 
   function closeTab(id) {
     const idx = tabs.findIndex(t => t.id === id);
     if (idx === -1) return;
-    const tab = tabs[idx];
-    tab.iframe.remove();
-    tab.tabEl.remove();
     tabs.splice(idx, 1);
-
-    if (tabs.length === 0) {
-      createTab(null);
-    } else if (activeTabId === id) {
-      switchTab(tabs[Math.max(0, idx - 1)].id);
-    }
-  }
-
-  function navigateActiveTab(url) {
-    const tab = tabs.find(t => t.id === activeTabId);
-    if (!tab) return;
-    const proxyUrl = buildProxyUrl(url);
-    if (!proxyUrl) return;
-    tab.url = url;
-    tab.title = url;
-    tab.favicon = null;
-    renderTabEl(tab);
-    tab.iframe.src = proxyUrl;
-    homeScreen.style.display = "none";
-    frameArea.style.display = "flex";
-    tab.iframe.classList.add("active");
-  }
-
-  /* ===============================================================
-     SEARCH FORM
-  =============================================================== */
-  searchForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const val = addressInput.value.trim();
-    if (!val) return;
-    navigateActiveTab(val);
-  });
-
-  /* address bar click → select all */
-  addressInput.addEventListener("focus", () => addressInput.select());
-
-  /* ===============================================================
-     TOOLBAR BUTTONS
-  =============================================================== */
-  btnNewTab.addEventListener("click", () => createTab(null));
-  btnHome.addEventListener("click", () => {
-    const tab = tabs.find(t => t.id === activeTabId);
-    if (tab) {
-      tab.url = null;
-      tab.title = "New Tab";
-      tab.favicon = null;
-      renderTabEl(tab);
-      tab.iframe.src = "about:blank";
-      addressInput.value = "";
-    }
-    homeScreen.style.display = "";
-    frameArea.style.display = "none";
-  });
-
-  btnBack.addEventListener("click", () => {
-    const tab = tabs.find(t => t.id === activeTabId);
-    try { tab?.iframe?.contentWindow?.history?.back(); } catch {}
-  });
-
-  btnForward.addEventListener("click", () => {
-    const tab = tabs.find(t => t.id === activeTabId);
-    try { tab?.iframe?.contentWindow?.history?.forward(); } catch {}
-  });
-
-  btnReload.addEventListener("click", () => {
-    const tab = tabs.find(t => t.id === activeTabId);
-    try {
-      tab?.iframe?.contentWindow?.location?.reload();
-    } catch {
-      if (tab?.iframe?.src) tab.iframe.src = tab.iframe.src;
-    }
-  });
-
-  /* ===============================================================
-     SHORTCUTS
-  =============================================================== */
-  document.querySelectorAll(".shortcut").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const url = btn.dataset.url;
-      if (!url) return;
-      /* navigate active tab if it's a "new tab", else open new tab */
-      const tab = tabs.find(t => t.id === activeTabId);
-      if (tab && !tab.url) {
-        navigateActiveTab(url);
+    if (activeTab === id) {
+      if (tabs.length === 0) {
+        activeTab = null;
+        showHome();
       } else {
-        const id = createTab(url, false);
-        switchTab(id);
+        const next = tabs[Math.min(idx, tabs.length - 1)];
+        switchTab(next.id);
+      }
+    }
+    renderTabs();
+  }
+
+  function switchTab(id) {
+    activeTab = id;
+    const tab = tabs.find(t => t.id === id);
+    renderTabs();
+    if (tab && tab.url) {
+      showProxy();
+    } else {
+      showHome();
+    }
+  }
+
+  function renderTabs() {
+    // Remove old tab elements, keep new-tab button
+    Array.from(tabBar.querySelectorAll(".tab-item")).forEach(el => el.remove());
+
+    tabs.forEach(tab => {
+      const el = document.createElement("div");
+      el.className = "tab-item" + (tab.id === activeTab ? " active" : "");
+      el.dataset.tabId = tab.id;
+
+      // Favicon
+      const fav = document.createElement("img");
+      fav.className = "tab-favicon";
+      fav.src = tab.favicon || defaultFaviconSVG();
+      fav.alt = "";
+      fav.onerror = () => { fav.src = defaultFaviconSVG(); };
+      el.appendChild(fav);
+
+      // Title
+      const titleEl = document.createElement("span");
+      titleEl.className = "tab-title";
+      titleEl.textContent = tab.title;
+      el.appendChild(titleEl);
+
+      // Close btn
+      const close = document.createElement("button");
+      close.className = "tab-close";
+      close.innerHTML = "×";
+      close.title = "Close tab";
+      close.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeTab(tab.id);
+      });
+      el.appendChild(close);
+
+      el.addEventListener("click", () => switchTab(tab.id));
+
+      // Insert before new-tab button
+      tabBar.insertBefore(el, newTabBtn);
+    });
+  }
+
+  function defaultFaviconSVG() {
+    return `data:image/svg+xml,<svg viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'><rect width='16' height='16' rx='3' fill='%23334'/><text x='8' y='12' text-anchor='middle' font-size='10' fill='%238899aa'>⊕</text></svg>`;
+  }
+
+  newTabBtn.addEventListener("click", () => createTab());
+
+  // ── Navigation / Proxy ───────────────────────────────────
+  function showProxy() {
+    homeScreen.classList.add("hidden");
+    proxyFrame.classList.remove("hidden");
+  }
+
+  function showHome() {
+    homeScreen.classList.remove("hidden");
+    proxyFrame.classList.add("hidden");
+    sjAddress.value = "";
+  }
+
+  homeBtn.addEventListener("click", () => {
+    if (activeTab) {
+      const tab = tabs.find(t => t.id === activeTab);
+      if (tab) { tab.url = null; tab.title = "New Tab"; tab.favicon = null; renderTabs(); }
+    }
+    showHome();
+  });
+
+  async function navigate(rawUrl) {
+    clearError();
+
+    let url = rawUrl.trim();
+    if (!url) return;
+
+    // Determine if URL or search
+    const isURL = /^(https?:\/\/|ftp:\/\/)/i.test(url)
+      || /^[a-z0-9-]+\.[a-z]{2,}(\/|$)/i.test(url);
+
+    if (!isURL) {
+      const engine = document.getElementById("sj-search-engine").value;
+      url = engine.replace("%s", encodeURIComponent(url));
+    } else if (!/^https?:\/\//i.test(url)) {
+      url = "https://" + url;
+    }
+
+    // Update active tab url
+    const tab = tabs.find(t => t.id === activeTab);
+
+    try {
+      const proxyUrl = await __scramjet$worker.encodeUrl(url);
+
+      if (tab) {
+        tab.url = url;
+        tab.title = new URL(url).hostname;
+        renderTabs();
+      }
+
+      showProxy();
+
+      proxyFrame.src = proxyUrl;
+
+      // After iframe loads: detect title + favicon
+      proxyFrame.addEventListener("load", () => detectTitleFavicon(tab), { once: false });
+
+    } catch (err) {
+      showError("Failed to load: " + err.message, err.stack || "");
+    }
+  }
+
+  // ── Favicon & Title detection ─────────────────────────────
+  function detectTitleFavicon(tab) {
+    if (!tab) return;
+    try {
+      const iDoc = proxyFrame.contentDocument || proxyFrame.contentWindow?.document;
+      if (!iDoc) return;
+
+      // Title
+      const title = iDoc.title || iDoc.querySelector("title")?.textContent;
+      if (title && title.trim()) {
+        tab.title = title.trim().slice(0, 40);
+      }
+
+      // Favicon
+      const links = iDoc.querySelectorAll("link[rel*='icon']");
+      let faviconHref = null;
+      for (const l of links) {
+        if (l.href) { faviconHref = l.href; break; }
+      }
+      if (!faviconHref && tab.url) {
+        try {
+          const base = new URL(tab.url);
+          faviconHref = base.origin + "/favicon.ico";
+        } catch (_) {}
+      }
+      if (faviconHref) tab.favicon = faviconHref;
+
+      renderTabs();
+    } catch (_) {
+      // cross-origin: use domain favicon
+      if (tab && tab.url) {
+        try {
+          const base = new URL(tab.url);
+          tab.favicon = `https://www.google.com/s2/favicons?domain=${base.hostname}&sz=32`;
+          renderTabs();
+        } catch (_) {}
+      }
+    }
+  }
+
+  // ── Form submit ───────────────────────────────────────────
+  sjForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const query = sjAddress.value.trim();
+    if (!query) return;
+
+    if (tabs.length === 0 || !activeTab) {
+      createTab(query);
+    } else {
+      navigate(query);
+    }
+  });
+
+  // ── Shortcut cards ────────────────────────────────────────
+  document.querySelectorAll(".shortcut-card").forEach(card => {
+    card.addEventListener("click", (e) => {
+      e.preventDefault();
+      const site = card.dataset.site;
+      if (!site) return;
+      if (tabs.length === 0 || !activeTab) {
+        createTab(site);
+      } else {
+        navigate(site);
       }
     });
   });
 
-  /* ===============================================================
-     PANIC SWITCH
-  =============================================================== */
-  function triggerPanic() {
-    panicOverlay.style.display = "block";
-    /* navigate top window to a neutral page */
-    try {
-      window.location.replace("https://google.com");
-    } catch {}
+  // ── Error helpers ─────────────────────────────────────────
+  function showError(msg, code = "") {
+    sjError.textContent = msg;
+    sjErrorCode.textContent = code;
+    errorWrap.classList.remove("hidden");
+  }
+  function clearError() {
+    errorWrap.classList.add("hidden");
+    sjError.textContent = "";
+    sjErrorCode.textContent = "";
   }
 
-  btnPanic.addEventListener("click", triggerPanic);
-
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !cloakShell.style.display.includes("none") === false) {
-      /* Escape: if not in cloak, don't panic */
-    }
-    /* Double-tap shift = panic */
-    if (e.key === "F1") {
-      e.preventDefault();
-      triggerPanic();
-    }
-  });
-
-  /* ===============================================================
-     ABOUT:BLANK CLOAK
-  =============================================================== */
-  function openCloak(srcUrl) {
-    cloakShell.style.display = "flex";
-    if (srcUrl) {
-      cloakFrame.src = srcUrl;
-      cloakUrlText.textContent = "about:blank";
-    }
-    /* make the tab/title look like about:blank */
-    document.title = "";
-  }
-
-  function closeCloak() {
-    cloakShell.style.display = "none";
-    cloakFrame.src = "about:blank";
-    document.title = "Scramjet";
-  }
-
-  btnCloak.addEventListener("click", () => {
-    const tab = tabs.find(t => t.id === activeTabId);
-    if (tab?.url) {
-      openCloak(tab.iframe.src || "about:blank");
-    } else {
-      openCloak("about:blank");
-    }
-  });
-
-  cloakExitBtn.addEventListener("click", closeCloak);
-
-  /* Auto-cloak on load: open in about:blank frame immediately */
-  function autoCloak() {
-    /* wrap the whole app in a blank-titled window appearance */
-    document.title = "";
-    /* we already have blank title; favicon trick */
-    const link = document.querySelector("link[rel~='icon']") || document.createElement("link");
-    link.rel = "icon";
-    link.href = "data:,";
-    document.head.appendChild(link);
-  }
-  autoCloak();
-
-  /* ===============================================================
-     FULLSCREEN
-  =============================================================== */
-  btnFullscreen.addEventListener("click", () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.();
-      document.getElementById("app").classList.add("fullscreen-mode");
-    } else {
-      document.exitFullscreen?.();
-      document.getElementById("app").classList.remove("fullscreen-mode");
-    }
-  });
-
-  document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement) {
-      document.getElementById("app").classList.remove("fullscreen-mode");
-    }
-  });
-
-  /* ===============================================================
-     BATTERY
-  =============================================================== */
-  function updateBatteryUI(battery) {
-    const pct = Math.round(battery.level * 100);
-    batteryText.textContent = pct + "%";
-    batteryFill.style.width = pct + "%";
-    if (pct <= 20) {
-      batteryFill.style.background = "#f87171";
-    } else if (pct <= 50) {
-      batteryFill.style.background = "#facc15";
-    } else {
-      batteryFill.style.background = "#4ade80";
-    }
-  }
-
-  if ("getBattery" in navigator) {
-    navigator.getBattery().then(battery => {
-      updateBatteryUI(battery);
-      battery.addEventListener("levelchange", () => updateBatteryUI(battery));
-      battery.addEventListener("chargingchange", () => updateBatteryUI(battery));
-    }).catch(() => {
-      batteryText.textContent = "N/A";
-    });
-  } else {
-    batteryText.textContent = "N/A";
-    document.getElementById("battery-indicator").title = "Battery API not available";
-  }
-
-  /* ===============================================================
-     INIT: open first tab
-  =============================================================== */
-  createTab(null);
+  // ── Init: create first tab slot (home) ────────────────────
+  // Don't create a full tab yet; user starts on home screen
+  renderTabs();
 
 })();
