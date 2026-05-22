@@ -1,367 +1,400 @@
-/* ============================================================
-   PYSIUM — index.js
-   Tabs, AB Cloak, Panic, Battery, Favicon/Title detection
-   ============================================================ */
+/* ─── THEME ─────────────────────────────────────────── */
+:root {
+  --bg: #0d0f14;
+  --bg2: #12151c;
+  --surface: rgba(255,255,255,0.055);
+  --surface-hover: rgba(255,255,255,0.09);
+  --border: rgba(255,255,255,0.1);
+  --border-strong: rgba(255,255,255,0.18);
+  --text: #e8eaf0;
+  --text-muted: rgba(232,234,240,0.45);
+  --accent: #7eb8f7;
+  --accent2: #a78bfa;
+  --glass-blur: 18px;
+  --radius: 14px;
+  --radius-sm: 8px;
+  --tab-h: 40px;
+  --topbar-h: 52px;
+  --font: 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+  --panic-url: "https://classroom.google.com";
+}
 
-(function () {
-  "use strict";
+/* ─── RESET ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); }
 
-  // ── Config ────────────────────────────────────────────────
-  const PANIC_URL  = "https://classroom.google.com";
-  const PANIC_KEY  = "Escape"; // hold Escape for 1s = panic
-  const AUTO_CLOAK = true;     // cloak on load (about:blank wrapper)
+/* ─── GLASS MIXIN ────────────────────────────────────── */
+.glass {
+  background: var(--surface);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  border: 1px solid var(--border);
+}
 
-  // ── DOM refs ──────────────────────────────────────────────
-  const homeScreen    = document.getElementById("home-screen");
-  const proxyFrame    = document.getElementById("proxy-frame");
-  const sjForm        = document.getElementById("sj-form");
-  const sjAddress     = document.getElementById("sj-address");
-  const sjError       = document.getElementById("sj-error");
-  const sjErrorCode   = document.getElementById("sj-error-code");
-  const errorWrap     = document.getElementById("sj-error-wrap");
-  const tabBar        = document.getElementById("tab-bar");
-  const newTabBtn     = document.getElementById("new-tab-btn");
-  const homeBtn       = document.getElementById("home-btn");
-  const cloakBtn      = document.getElementById("cloak-btn");
-  const panicBtn      = document.getElementById("panic-btn");
-  const fullscreenBtn = document.getElementById("fullscreen-btn");
-  const cloakOverlay  = document.getElementById("cloak-overlay");
-  const battPct       = document.getElementById("battery-pct");
-  const battFill      = document.querySelector(".battery-fill");
+/* ─── BG GRADIENT ────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: -1;
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 10%, rgba(126,184,247,0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 60% at 80% 80%, rgba(167,139,250,0.1) 0%, transparent 70%),
+    var(--bg);
+  pointer-events: none;
+}
 
-  // ── AB / About:blank Cloak ────────────────────────────────
-  let cloakActive = false;
+/* ─── TAB BAR ────────────────────────────────────────── */
+#tab-bar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--tab-h);
+  display: flex; align-items: center;
+  background: rgba(13,15,20,0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  z-index: 200;
+  padding: 0 6px;
+  gap: 4px;
+}
 
-  function activateCloak() {
-    cloakActive = true;
-    cloakOverlay.classList.remove("hidden");
-    cloakBtn.classList.add("active");
-    cloakBtn.title = "Disable cloak";
-  }
+#tab-list {
+  display: flex; align-items: center; gap: 3px;
+  flex: 1; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+}
+#tab-list::-webkit-scrollbar { display: none; }
 
-  function deactivateCloak() {
-    cloakActive = false;
-    cloakOverlay.classList.add("hidden");
-    cloakBtn.classList.remove("active");
-    cloakBtn.title = "About:blank cloak";
-  }
+.tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 10px 0 10px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font); font-size: 12px; font-weight: 400;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 80px; max-width: 180px;
+  transition: background .15s, color .15s, border-color .15s;
+  position: relative;
+  user-select: none;
+}
+.tab:hover { background: var(--surface); color: var(--text); }
+.tab.active {
+  background: rgba(126,184,247,0.12);
+  border-color: rgba(126,184,247,0.25);
+  color: var(--text);
+}
+.tab-favicon { width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0; }
+.tab-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tab-close {
+  width: 16px; height: 16px; border-radius: 4px;
+  background: none; border: none; color: inherit;
+  font-size: 11px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+  transition: opacity .15s, background .15s;
+  flex-shrink: 0;
+}
+.tab:hover .tab-close, .tab.active .tab-close { opacity: 1; }
+.tab-close:hover { background: rgba(255,255,255,0.12); }
 
-  cloakBtn.addEventListener("click", () => {
-    if (cloakActive) deactivateCloak();
-    else activateCloak();
-  });
+#new-tab-btn {
+  width: 28px; height: 28px; border-radius: var(--radius-sm);
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted); font-size: 18px; line-height: 1;
+  cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s;
+}
+#new-tab-btn:hover { background: var(--surface); color: var(--text); }
 
-  if (AUTO_CLOAK) {
-    activateCloak();
-    // Click anywhere on cloak overlay to reveal (user opt-in)
-    cloakOverlay.addEventListener("click", deactivateCloak, { once: false });
-    cloakOverlay.title = "Click to enter Pysium";
-  }
+/* ─── MAIN SHELL ─────────────────────────────────────── */
+#main-shell {
+  position: fixed;
+  top: var(--tab-h); left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column;
+}
 
-  // ── Panic switch ──────────────────────────────────────────
-  let panicHold = null;
+/* ─── TOP BAR ────────────────────────────────────────── */
+#top-bar {
+  height: var(--topbar-h);
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 10px;
+  background: rgba(13,15,20,0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
 
-  function triggerPanic() {
-    // Replace the whole page context to avoid back-navigation to proxy
-    window.location.replace(PANIC_URL);
-  }
+.top-btn {
+  width: 34px; height: 34px; border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s, border-color .15s;
+  flex-shrink: 0;
+}
+.top-btn svg { width: 16px; height: 16px; }
+.top-btn:hover { background: var(--surface-hover); color: var(--text); border-color: var(--border-strong); }
 
-  panicBtn.addEventListener("click", triggerPanic);
+#address-bar-wrap {
+  flex: 1;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  height: 34px;
+  transition: border-color .2s, background .2s;
+}
+#address-bar-wrap:focus-within {
+  border-color: rgba(126,184,247,0.4);
+  background: rgba(126,184,247,0.06);
+}
+#lock-icon { color: var(--text-muted); display: flex; }
+#lock-icon svg { width: 14px; height: 14px; }
 
-  // Keyboard shortcut: hold Escape 0.8s
-  document.addEventListener("keydown", (e) => {
-    if (e.key === PANIC_KEY && !panicHold) {
-      panicHold = setTimeout(triggerPanic, 800);
-    }
-  });
-  document.addEventListener("keyup", (e) => {
-    if (e.key === PANIC_KEY) {
-      clearTimeout(panicHold);
-      panicHold = null;
-    }
-  });
+#address-bar {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-family: var(--font-mono); font-size: 12.5px;
+}
+#address-bar::placeholder { color: var(--text-muted); font-family: var(--font); }
 
-  // ── Battery ───────────────────────────────────────────────
-  async function initBattery() {
-    if (!navigator.getBattery) return;
-    try {
-      const bat = await navigator.getBattery();
-      function updateBat() {
-        const pct = Math.round(bat.level * 100);
-        battPct.textContent = pct + "%";
-        // Fill bar: max inner width ~16px at 100%
-        const maxW = 16;
-        const w = Math.round((pct / 100) * maxW);
-        battFill.style.setProperty("--batt-w", w + "px");
-        battFill.setAttribute("width", w);
-        // Color hint
-        if (pct <= 20) {
-          battFill.style.fill = "hsl(355, 85%, 62%)";
-          battPct.style.color = "hsl(355, 85%, 62%)";
-        } else if (pct <= 40) {
-          battFill.style.fill = "hsl(40, 90%, 60%)";
-          battPct.style.color = "hsl(40, 90%, 60%)";
-        } else {
-          battFill.style.fill = "";
-          battPct.style.color = "";
-        }
-      }
-      updateBat();
-      bat.addEventListener("levelchange", updateBat);
-      bat.addEventListener("chargingchange", updateBat);
-    } catch (_) {}
-  }
-  initBattery();
+/* battery */
+#battery-wrap {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+#battery-icon { width: 24px; height: 14px; }
+#battery-fill { transition: width .4s; }
 
-  // ── Fullscreen ────────────────────────────────────────────
-  fullscreenBtn.addEventListener("click", () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
-    }
-  });
+/* panic */
+#panic-btn { color: rgba(248,113,113,0.7); }
+#panic-btn:hover { color: #f87171; border-color: rgba(248,113,113,0.4); background: rgba(248,113,113,0.08); }
 
-  document.addEventListener("fullscreenchange", () => {
-    const icon = fullscreenBtn.querySelector("svg");
-    if (document.fullscreenElement) {
-      icon.innerHTML = '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 0 2-2h3M3 16h3a2 2 0 0 0 2 2v3"/>';
-    } else {
-      icon.innerHTML = '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>';
-    }
-  });
+/* ─── HOME PAGE ──────────────────────────────────────── */
+#home-page {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  overflow-y: auto;
+}
+#home-inner {
+  display: flex; flex-direction: column; align-items: center; gap: 24px;
+  padding: 40px 20px;
+  max-width: 700px; width: 100%;
+}
 
-  // ── Tab system ────────────────────────────────────────────
-  let tabs      = [];    // [{ id, title, favicon, url, active }]
-  let activeTab = null;
-  let tabIdCounter = 0;
+#wordmark {
+  font-size: clamp(52px, 10vw, 88px);
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, var(--text) 0%, rgba(126,184,247,0.9) 50%, var(--accent2) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+#home-sub {
+  font-size: 14px; color: var(--text-muted); letter-spacing: 0.05em;
+  text-transform: lowercase; font-weight: 300;
+}
 
-  function createTab(url = null, title = "New Tab") {
-    const id = ++tabIdCounter;
-    const tab = { id, title, favicon: null, url };
-    tabs.push(tab);
-    renderTabs();
-    switchTab(id);
-    if (url) navigate(url);
-    return tab;
-  }
+/* search form */
+#sj-form { width: 100%; }
+#search-wrap {
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--border);
+  border-radius: 50px;
+  padding: 0 20px;
+  height: 54px;
+  transition: border-color .2s, background .2s, box-shadow .2s;
+}
+#search-wrap:focus-within {
+  border-color: rgba(126,184,247,0.5);
+  background: rgba(126,184,247,0.07);
+  box-shadow: 0 0 0 3px rgba(126,184,247,0.1), 0 8px 32px rgba(0,0,0,0.3);
+}
+.search-ico { width: 18px; height: 18px; color: var(--text-muted); flex-shrink: 0; }
+#sj-address {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-family: var(--font); font-size: 15px; font-weight: 400;
+}
+#sj-address::placeholder { color: var(--text-muted); }
+#sj-error { color: #f87171; font-size: 12px; margin-top: 8px; text-align: center; }
+#sj-error-code { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; margin-top: 4px; }
 
-  function closeTab(id) {
-    const idx = tabs.findIndex(t => t.id === id);
-    if (idx === -1) return;
-    tabs.splice(idx, 1);
-    if (activeTab === id) {
-      if (tabs.length === 0) {
-        activeTab = null;
-        showHome();
-      } else {
-        const next = tabs[Math.min(idx, tabs.length - 1)];
-        switchTab(next.id);
-      }
-    }
-    renderTabs();
-  }
+/* shortcuts */
+#shortcuts {
+  display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+  margin-top: 8px;
+}
+.shortcut {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  text-decoration: none; color: var(--text-muted);
+  font-size: 11px; font-weight: 500; letter-spacing: 0.03em;
+  transition: color .2s, transform .2s;
+}
+.shortcut:hover { color: var(--text); transform: translateY(-3px); }
+.shortcut-icon {
+  width: 52px; height: 52px; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: background .2s, border-color .2s, box-shadow .2s;
+}
+.shortcut-icon svg { width: 22px; height: 22px; }
+.shortcut:hover .shortcut-icon {
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
 
-  function switchTab(id) {
-    activeTab = id;
-    const tab = tabs.find(t => t.id === id);
-    renderTabs();
-    if (tab && tab.url) {
-      showProxy();
-    } else {
-      showHome();
-    }
-  }
+.sc-yt  { color: #ff4444; }
+.sc-reddit { color: #ff6314; }
+.sc-x { color: #e8eaf0; }
+.sc-discord { color: #5865f2; }
+.sc-insta { color: #e1306c; }
+.sc-tiktok { color: #ee1d52; }
 
-  function renderTabs() {
-    // Remove old tab elements, keep new-tab button
-    Array.from(tabBar.querySelectorAll(".tab-item")).forEach(el => el.remove());
+.shortcut:hover .sc-yt  { background: rgba(255,68,68,0.15); }
+.shortcut:hover .sc-reddit { background: rgba(255,99,20,0.15); }
+.shortcut:hover .sc-x { background: rgba(232,234,240,0.1); }
+.shortcut:hover .sc-discord { background: rgba(88,101,242,0.15); }
+.shortcut:hover .sc-insta { background: rgba(225,48,108,0.15); }
+.shortcut:hover .sc-tiktok { background: rgba(238,29,82,0.15); }
 
-    tabs.forEach(tab => {
-      const el = document.createElement("div");
-      el.className = "tab-item" + (tab.id === activeTab ? " active" : "");
-      el.dataset.tabId = tab.id;
+/* ─── PROXY IFRAME ───────────────────────────────────── */
+#proxy-frame {
+  flex: 1; border: none; width: 100%;
+  display: none;
+  background: #fff;
+}
+#proxy-frame.active { display: block; }
 
-      // Favicon
-      const fav = document.createElement("img");
-      fav.className = "tab-favicon";
-      fav.src = tab.favicon || defaultFaviconSVG();
-      fav.alt = "";
-      fav.onerror = () => { fav.src = defaultFaviconSVG(); };
-      el.appendChild(fav);
+/* ─── FAB ROW ────────────────────────────────────────── */
+#fab-row {
+  position: fixed; bottom: 20px; right: 20px;
+  display: flex; gap: 10px; z-index: 100;
+}
+#cloak-fab {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 14px;
+  background: rgba(255,255,255,0.07);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: 50px;
+  color: var(--text-muted); font-family: var(--font); font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+#cloak-fab svg { width: 15px; height: 15px; }
+#cloak-fab:hover { background: rgba(255,255,255,0.12); color: var(--text); border-color: var(--border-strong); }
 
-      // Title
-      const titleEl = document.createElement("span");
-      titleEl.className = "tab-title";
-      titleEl.textContent = tab.title;
-      el.appendChild(titleEl);
+/* ─── GLASS PANEL ────────────────────────────────────── */
+.glass-panel {
+  position: fixed; z-index: 300;
+  background: rgba(18,21,28,0.82);
+  backdrop-filter: blur(28px) saturate(1.5);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  width: 320px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  overflow: hidden;
+  animation: panelIn .2s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: scale(0.93) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.glass-panel.hidden { display: none; }
+#cloak-panel { bottom: 70px; right: 20px; }
 
-      // Close btn
-      const close = document.createElement("button");
-      close.className = "tab-close";
-      close.innerHTML = "×";
-      close.title = "Close tab";
-      close.addEventListener("click", (e) => {
-        e.stopPropagation();
-        closeTab(tab.id);
-      });
-      el.appendChild(close);
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 600; color: var(--text);
+}
+.panel-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 14px; cursor: pointer; line-height: 1;
+  padding: 2px 6px; border-radius: 4px;
+  transition: background .15s, color .15s;
+}
+.panel-close:hover { background: var(--surface); color: var(--text); }
 
-      el.addEventListener("click", () => switchTab(tab.id));
+.panel-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
 
-      // Insert before new-tab button
-      tabBar.insertBefore(el, newTabBtn);
-    });
-  }
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; color: var(--text); cursor: pointer;
+}
+.toggle-row input[type=checkbox] {
+  width: 36px; height: 20px; appearance: none;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; cursor: pointer; position: relative;
+  transition: background .2s;
+}
+.toggle-row input[type=checkbox]::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform .2s, background .2s;
+}
+.toggle-row input[type=checkbox]:checked { background: rgba(126,184,247,0.3); border-color: var(--accent); }
+.toggle-row input[type=checkbox]:checked::after { transform: translateX(16px); background: var(--accent); }
 
-  function defaultFaviconSVG() {
-    return `data:image/svg+xml,<svg viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'><rect width='16' height='16' rx='3' fill='%23334'/><text x='8' y='12' text-anchor='middle' font-size='10' fill='%238899aa'>⊕</text></svg>`;
-  }
+.field-group { display: flex; flex-direction: column; gap: 5px; }
+.field-group label { font-size: 11px; color: var(--text-muted); letter-spacing: 0.04em; text-transform: uppercase; }
+.field-group input {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 10px;
+  color: var(--text); font-family: var(--font); font-size: 12.5px;
+  outline: none; transition: border-color .15s;
+}
+.field-group input:focus { border-color: rgba(126,184,247,0.4); }
+.field-group input::placeholder { color: var(--text-muted); }
 
-  newTabBtn.addEventListener("click", () => createTab());
+.preset-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.preset-btn {
+  padding: 5px 10px; border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text-muted); font-family: var(--font); font-size: 11px; font-weight: 500;
+  cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+}
+.preset-btn:hover { background: var(--surface-hover); color: var(--text); border-color: var(--border-strong); }
 
-  // ── Navigation / Proxy ───────────────────────────────────
-  function showProxy() {
-    homeScreen.classList.add("hidden");
-    proxyFrame.classList.remove("hidden");
-  }
+.apply-btn {
+  width: 100%; padding: 9px;
+  background: rgba(126,184,247,0.15); border: 1px solid rgba(126,184,247,0.3);
+  border-radius: var(--radius-sm); color: var(--accent);
+  font-family: var(--font); font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: background .15s, border-color .15s;
+}
+.apply-btn:hover { background: rgba(126,184,247,0.25); border-color: rgba(126,184,247,0.5); }
+.apply-btn.secondary {
+  background: var(--surface); border-color: var(--border); color: var(--text-muted);
+}
+.apply-btn.secondary:hover { background: var(--surface-hover); color: var(--text); border-color: var(--border-strong); }
 
-  function showHome() {
-    homeScreen.classList.remove("hidden");
-    proxyFrame.classList.add("hidden");
-    sjAddress.value = "";
-  }
+/* ─── OVERLAY ────────────────────────────────────────── */
+#overlay {
+  position: fixed; inset: 0; z-index: 250;
+  background: rgba(0,0,0,0.3);
+  backdrop-filter: blur(2px);
+}
+#overlay.hidden { display: none; }
 
-  homeBtn.addEventListener("click", () => {
-    if (activeTab) {
-      const tab = tabs.find(t => t.id === activeTab);
-      if (tab) { tab.url = null; tab.title = "New Tab"; tab.favicon = null; renderTabs(); }
-    }
-    showHome();
-  });
-
-  async function navigate(rawUrl) {
-    clearError();
-
-    let url = rawUrl.trim();
-    if (!url) return;
-
-    // Determine if URL or search
-    const isURL = /^(https?:\/\/|ftp:\/\/)/i.test(url)
-      || /^[a-z0-9-]+\.[a-z]{2,}(\/|$)/i.test(url);
-
-    if (!isURL) {
-      const engine = document.getElementById("sj-search-engine").value;
-      url = engine.replace("%s", encodeURIComponent(url));
-    } else if (!/^https?:\/\//i.test(url)) {
-      url = "https://" + url;
-    }
-
-    // Update active tab url
-    const tab = tabs.find(t => t.id === activeTab);
-
-    try {
-      const proxyUrl = await __scramjet$worker.encodeUrl(url);
-
-      if (tab) {
-        tab.url = url;
-        tab.title = new URL(url).hostname;
-        renderTabs();
-      }
-
-      showProxy();
-
-      proxyFrame.src = proxyUrl;
-
-      // After iframe loads: detect title + favicon
-      proxyFrame.addEventListener("load", () => detectTitleFavicon(tab), { once: false });
-
-    } catch (err) {
-      showError("Failed to load: " + err.message, err.stack || "");
-    }
-  }
-
-  // ── Favicon & Title detection ─────────────────────────────
-  function detectTitleFavicon(tab) {
-    if (!tab) return;
-    try {
-      const iDoc = proxyFrame.contentDocument || proxyFrame.contentWindow?.document;
-      if (!iDoc) return;
-
-      // Title
-      const title = iDoc.title || iDoc.querySelector("title")?.textContent;
-      if (title && title.trim()) {
-        tab.title = title.trim().slice(0, 40);
-      }
-
-      // Favicon
-      const links = iDoc.querySelectorAll("link[rel*='icon']");
-      let faviconHref = null;
-      for (const l of links) {
-        if (l.href) { faviconHref = l.href; break; }
-      }
-      if (!faviconHref && tab.url) {
-        try {
-          const base = new URL(tab.url);
-          faviconHref = base.origin + "/favicon.ico";
-        } catch (_) {}
-      }
-      if (faviconHref) tab.favicon = faviconHref;
-
-      renderTabs();
-    } catch (_) {
-      // cross-origin: use domain favicon
-      if (tab && tab.url) {
-        try {
-          const base = new URL(tab.url);
-          tab.favicon = `https://www.google.com/s2/favicons?domain=${base.hostname}&sz=32`;
-          renderTabs();
-        } catch (_) {}
-      }
-    }
-  }
-
-  // ── Form submit ───────────────────────────────────────────
-  sjForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const query = sjAddress.value.trim();
-    if (!query) return;
-
-    if (tabs.length === 0 || !activeTab) {
-      createTab(query);
-    } else {
-      navigate(query);
-    }
-  });
-
-  // ── Shortcut cards ────────────────────────────────────────
-  document.querySelectorAll(".shortcut-card").forEach(card => {
-    card.addEventListener("click", (e) => {
-      e.preventDefault();
-      const site = card.dataset.site;
-      if (!site) return;
-      if (tabs.length === 0 || !activeTab) {
-        createTab(site);
-      } else {
-        navigate(site);
-      }
-    });
-  });
-
-  // ── Error helpers ─────────────────────────────────────────
-  function showError(msg, code = "") {
-    sjError.textContent = msg;
-    sjErrorCode.textContent = code;
-    errorWrap.classList.remove("hidden");
-  }
-  function clearError() {
-    errorWrap.classList.add("hidden");
-    sjError.textContent = "";
-    sjErrorCode.textContent = "";
-  }
-
-  // ── Init: create first tab slot (home) ────────────────────
-  // Don't create a full tab yet; user starts on home screen
-  renderTabs();
-
-})();
+/* ─── SCROLLBAR ──────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
