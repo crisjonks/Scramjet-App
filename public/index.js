@@ -1,57 +1,55 @@
 /* ── PYSIUM index.js ── */
+'use strict';
 
 const CLOAK_DEFAULTS = { title: 'Pysium', favicon: '/favicon.ico' };
 let SEARCH_ENGINE = localStorage.getItem('pysium_engine') || 'https://www.google.com/search?q=%s';
 let PANIC_URL     = localStorage.getItem('pysium_panic')  || 'https://classroom.google.com';
 
-let tabs        = [];
-let activeTabId = null;
+let tabs         = [];
+let activeTabId  = null;
 let cloakEnabled = true;
+let scramjet     = null;
+let connection   = null;
+let transportSet = false;
 
-// Scramjet globals — matches the real Scramjet-App pattern exactly
-let scramjet   = null;
-let connection = null;
-
-// ── SCRAMJET INIT ─────────────────────────────────────────────────────
+// ── SCRAMJET ──────────────────────────────────────────────────────────
 function initScramjet() {
-  scramjet = new ScramjetController({
-    files: {
-      wasm:   '/scram/scramjet.wasm.wasm',
-      worker: '/scram/scramjet.worker.js',
-      client: '/scram/scramjet.client.js',
-      shared: '/scram/scramjet.shared.js',
-      sync:   '/scram/scramjet.sync.js',
-    },
-  });
-  scramjet.init(); // no await — matches real usage
-
-  connection = new BareMux.BareMuxConnection('/baremux/worker.js');
+  try {
+    scramjet = new ScramjetController({
+      files: {
+        wasm:   '/scram/scramjet.wasm.wasm',
+        worker: '/scram/scramjet.worker.js',
+        client: '/scram/scramjet.client.js',
+        shared: '/scram/scramjet.shared.js',
+        sync:   '/scram/scramjet.sync.js',
+      },
+    });
+    scramjet.init();
+    connection = new BareMux.BareMuxConnection('/baremux/worker.js');
+    console.log('[pysium] scramjet+baremux ready');
+  } catch (e) {
+    console.warn('[pysium] scramjet init failed (proxy disabled):', e.message);
+  }
 }
 
 async function ensureTransport() {
-  const wispUrl = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/wisp/';
-  const bareUrl = (location.protocol === 'https:' ? 'https' : 'http') + '://' + location.host + '/bare/';
-
-  // Try transports in order — same as the real Scramjet-App
-  for (let attempt = 0; attempt < 10; attempt++) {
+  if (transportSet || !connection) return;
+  const wisp = (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/wisp/';
+  const bare = (location.protocol === 'https:' ? 'https' : 'http') + '://' + location.host + '/bare/';
+  const transports = [
+    ['/epoxy/index.mjs',  [{ wisp }]],
+    ['/libcurl/index.mjs',[{ wisp }]],
+    ['/baremod/index.mjs',[bare]],
+  ];
+  for (const [path, args] of transports) {
     try {
-      await connection.setTransport('/epoxy/index.mjs', [{ wisp: wispUrl }]);
-      console.log('[pysium] transport: epoxy');
+      await connection.setTransport(path, args);
+      transportSet = true;
+      console.log('[pysium] transport set:', path);
       return;
     } catch {}
-    try {
-      await connection.setTransport('/baremod/index.mjs', [bareUrl]);
-      console.log('[pysium] transport: baremod');
-      return;
-    } catch {}
-    try {
-      await connection.setTransport('/libcurl/index.mjs', [{ wisp: wispUrl }]);
-      console.log('[pysium] transport: libcurl');
-      return;
-    } catch {}
-    await new Promise(r => setTimeout(r, 150));
   }
-  console.error('[pysium] no transport available');
+  console.warn('[pysium] no transport available');
 }
 
 // ── URL HELPERS ───────────────────────────────────────────────────────
@@ -92,7 +90,7 @@ function saveCloakSettings() {
   const title = document.getElementById('cloak-title').value.trim()       || CLOAK_DEFAULTS.title;
   const fav   = document.getElementById('cloak-favicon-url').value.trim() || CLOAK_DEFAULTS.favicon;
   cloakEnabled = document.getElementById('cloak-toggle').checked;
-  const auto   = document.getElementById('cloak-auto-toggle').checked;
+  const auto  = document.getElementById('cloak-auto-toggle').checked;
   localStorage.setItem('pysium_cloak', JSON.stringify({ enabled: cloakEnabled, title, favicon: fav, autoCloak: auto }));
   if (cloakEnabled) applyCloak(title, fav);
   else { document.title = 'Pysium'; document.getElementById('cloak-favicon').href = '/favicon.ico'; }
@@ -101,14 +99,21 @@ function saveCloakSettings() {
 // ── TABS ──────────────────────────────────────────────────────────────
 let _tid = 0;
 
-// Each tab has its own ScramjetFrame so navigation is independent
-function createTab(url = null) {
+function createTab(url) {
   const id = ++_tid;
-  // Create the ScramjetFrame NOW — frame.frame is the real <iframe>
-  const frame = scramjet.createFrame();
-  const iframe = frame.frame;
-  iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:none;display:none;background:#fff;';
-  document.getElementById('frame-container').appendChild(iframe);
+  let frame = null, iframe = null;
+
+  if (scramjet) {
+    try {
+      frame  = scramjet.createFrame();
+      iframe = frame.frame;
+      iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:none;display:none;background:#fff;';
+      document.getElementById('frame-container').appendChild(iframe);
+    } catch (e) {
+      console.warn('[pysium] createFrame failed:', e.message);
+      frame = null; iframe = null;
+    }
+  }
 
   tabs.push({ id, title: 'New Tab', favicon: null, url: '', history: [], historyIdx: -1, frame, iframe });
   renderTabBar();
@@ -121,7 +126,7 @@ function closeTab(id) {
   const idx = tabs.findIndex(t => t.id === id);
   if (idx < 0) return;
   const tab = tabs[idx];
-  tab.iframe.remove(); // remove from DOM
+  if (tab.iframe) tab.iframe.remove();
   tabs.splice(idx, 1);
   if (!tabs.length) { createTab(); return; }
   if (activeTabId === id) switchTab(tabs[Math.min(idx, tabs.length - 1)].id);
@@ -130,21 +135,22 @@ function closeTab(id) {
 
 function switchTab(id) {
   activeTabId = id;
-  // hide all iframes, show active one
-  tabs.forEach(t => { t.iframe.style.display = 'none'; });
+  tabs.forEach(t => { if (t.iframe) t.iframe.style.display = 'none'; });
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
 
   const home = document.getElementById('home-page');
+  const fc   = document.getElementById('frame-container');
   const bar  = document.getElementById('address-bar');
 
   if (tab.url) {
-    home.style.display    = 'none';
-    tab.iframe.style.display = 'block';
+    home.style.display = 'none';
+    fc.style.display   = 'flex';
+    if (tab.iframe) tab.iframe.style.display = 'block';
     bar.value = tab.url;
   } else {
-    home.style.display    = 'flex';
-    tab.iframe.style.display = 'none';
+    home.style.display = 'flex';
+    fc.style.display   = 'none';
     bar.value = '';
   }
   renderTabBar();
@@ -155,7 +161,7 @@ function renderTabBar() {
   const list = document.getElementById('tab-list');
   list.innerHTML = '';
   tabs.forEach(tab => {
-    const el = document.createElement('div');
+    const el  = document.createElement('div');
     el.className = 'tab' + (tab.id === activeTabId ? ' active' : '');
 
     const fav = document.createElement('img');
@@ -185,13 +191,14 @@ function updateNavButtons() {
 }
 
 // ── NAVIGATION ────────────────────────────────────────────────────────
-async function navigateTo(raw, tabId = activeTabId) {
+async function navigateTo(raw, tabId) {
+  tabId = tabId || activeTabId;
   const tab = tabs.find(t => t.id === tabId);
   if (!tab) return;
+
   const url = resolveInput(raw);
   if (!url) { goHome(); return; }
 
-  // push history
   if (tab.history[tab.historyIdx] !== url) {
     tab.history = tab.history.slice(0, tab.historyIdx + 1);
     tab.history.push(url);
@@ -200,22 +207,28 @@ async function navigateTo(raw, tabId = activeTabId) {
   tab.url = url;
 
   const home = document.getElementById('home-page');
-  home.style.display       = 'none';
-  tab.iframe.style.display = 'block';
-  tabs.forEach(t => { if (t.id !== tabId) t.iframe.style.display = 'none'; });
+  const fc   = document.getElementById('frame-container');
+  home.style.display = 'none';
+  fc.style.display   = 'flex';
+  tabs.forEach(t => { if (t.iframe) t.iframe.style.display = 'none'; });
+  if (tab.iframe) tab.iframe.style.display = 'block';
   document.getElementById('address-bar').value = url;
-
-  await ensureTransport();
-  tab.frame.go(url);
+  renderTabBar();
   updateNavButtons();
+
+  if (tab.frame) {
+    await ensureTransport();
+    try { tab.frame.go(url); } catch (e) { console.error('[pysium] go() failed:', e); }
+  }
 }
 
 function goHome() {
   const tab = tabs.find(t => t.id === activeTabId);
   if (!tab) return;
   tab.url = '';
-  tabs.forEach(t => { t.iframe.style.display = 'none'; });
-  document.getElementById('home-page').style.display = 'flex';
+  tabs.forEach(t => { if (t.iframe) t.iframe.style.display = 'none'; });
+  document.getElementById('home-page').style.display  = 'flex';
+  document.getElementById('frame-container').style.display = 'none';
   document.getElementById('address-bar').value = '';
   renderTabBar();
   updateNavButtons();
@@ -227,10 +240,12 @@ function goBack() {
   tab.historyIdx--;
   tab.url = tab.history[tab.historyIdx];
   document.getElementById('address-bar').value = tab.url;
-  document.getElementById('home-page').style.display = 'none';
-  tab.iframe.style.display = 'block';
-  ensureTransport().then(() => tab.frame.go(tab.url));
+  document.getElementById('home-page').style.display  = 'none';
+  document.getElementById('frame-container').style.display = 'flex';
+  tabs.forEach(t => { if (t.iframe) t.iframe.style.display = 'none'; });
+  if (tab.iframe) tab.iframe.style.display = 'block';
   updateNavButtons();
+  if (tab.frame) ensureTransport().then(() => { try { tab.frame.go(tab.url); } catch {} });
 }
 
 function goForward() {
@@ -239,32 +254,23 @@ function goForward() {
   tab.historyIdx++;
   tab.url = tab.history[tab.historyIdx];
   document.getElementById('address-bar').value = tab.url;
-  document.getElementById('home-page').style.display = 'none';
-  tab.iframe.style.display = 'block';
-  ensureTransport().then(() => tab.frame.go(tab.url));
+  document.getElementById('home-page').style.display  = 'none';
+  document.getElementById('frame-container').style.display = 'flex';
+  tabs.forEach(t => { if (t.iframe) t.iframe.style.display = 'none'; });
+  if (tab.iframe) tab.iframe.style.display = 'block';
   updateNavButtons();
+  if (tab.frame) ensureTransport().then(() => { try { tab.frame.go(tab.url); } catch {} });
 }
 
 function reloadTab() {
   const tab = tabs.find(t => t.id === activeTabId);
-  if (!tab || !tab.url) return;
-  ensureTransport().then(() => tab.frame.go(tab.url));
+  if (!tab || !tab.url || !tab.frame) return;
+  ensureTransport().then(() => { try { tab.frame.go(tab.url); } catch {} });
 }
 
 // ── WEATHER ───────────────────────────────────────────────────────────
-const WX_ICONS = {
-  0:'☀️',1:'🌤',2:'⛅',3:'☁️',45:'🌫',48:'🌫',
-  51:'🌦',53:'🌦',55:'🌧',61:'🌧',63:'🌧',65:'🌧',
-  71:'🌨',73:'🌨',75:'❄️',80:'🌦',81:'🌧',82:'⛈',
-  95:'⛈',96:'⛈',99:'⛈'
-};
-const WX_DESC = {
-  0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',
-  45:'Fog',48:'Fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',
-  61:'Light rain',63:'Rain',65:'Heavy rain',71:'Light snow',73:'Snow',
-  75:'Heavy snow',80:'Showers',81:'Heavy showers',82:'Violent showers',
-  95:'Thunderstorm',96:'Thunderstorm',99:'Thunderstorm'
-};
+const WX_ICONS = {0:'☀️',1:'🌤',2:'⛅',3:'☁️',45:'🌫',48:'🌫',51:'🌦',53:'🌦',55:'🌧',61:'🌧',63:'🌧',65:'🌧',71:'🌨',73:'🌨',75:'❄️',80:'🌦',81:'🌧',82:'⛈',95:'⛈',96:'⛈',99:'⛈'};
+const WX_DESC  = {0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',61:'Light rain',63:'Rain',65:'Heavy rain',71:'Light snow',73:'Snow',75:'Heavy snow',80:'Showers',81:'Heavy showers',82:'Violent showers',95:'Thunderstorm',96:'Thunderstorm',99:'Thunderstorm'};
 
 async function fetchWeather(lat, lon) {
   const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weathercode&timezone=auto`);
@@ -274,7 +280,7 @@ async function fetchWeather(lat, lon) {
 }
 async function fetchCity(lat, lon) {
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`, { headers: {'Accept-Language':'en'} });
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`, { headers: { 'Accept-Language': 'en' } });
     const d = await r.json();
     return d.address?.city || d.address?.town || d.address?.village || d.address?.county || '';
   } catch { return ''; }
@@ -286,14 +292,14 @@ function showWeatherData(wx, city) {
   document.getElementById('weather-temp').textContent = Math.round(wx.temperature) + '°C';
   document.getElementById('weather-desc').textContent = WX_DESC[code] || 'Clear';
   document.getElementById('weather-city').textContent = city || '';
-  document.getElementById('weather-icon-wrap').innerHTML = `<span style="font-size:28px;line-height:1">${WX_ICONS[code]||'🌡️'}</span>`;
+  document.getElementById('weather-icon-wrap').innerHTML = `<span style="font-size:28px;line-height:1">${WX_ICONS[code] || '🌡️'}</span>`;
 }
 async function loadWeather(lat, lon) {
   const [wx, city] = await Promise.all([fetchWeather(lat, lon), fetchCity(lat, lon)]);
   localStorage.setItem('pysium_weather_cache', JSON.stringify({ wx, city, ts: Date.now() }));
   showWeatherData(wx, city);
 }
-async function initWeather() {
+function initWeather() {
   const cached = localStorage.getItem('pysium_weather_cache');
   if (cached) {
     try { const { wx, city } = JSON.parse(cached); showWeatherData(wx, city); } catch {}
@@ -303,39 +309,43 @@ async function initWeather() {
     try {
       const { lat, lon } = JSON.parse(savedPos);
       const age = cached ? Date.now() - JSON.parse(cached).ts : Infinity;
-      if (age > 15 * 60 * 1000) await loadWeather(lat, lon);
+      if (age > 15 * 60 * 1000) loadWeather(lat, lon);
     } catch {}
   }
-  document.getElementById('weather-widget').addEventListener('click', async () => {
+  document.getElementById('weather-widget').addEventListener('click', () => {
     if (!navigator.geolocation) { alert('Geolocation not available.'); return; }
     const loading = document.getElementById('weather-loading');
     const data    = document.getElementById('weather-data');
-    loading.classList.remove('hidden'); data.classList.add('hidden');
+    loading.classList.remove('hidden');
+    data.classList.add('hidden');
     loading.querySelector('span').textContent = 'Getting location…';
-    try {
-      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 }));
-      const { latitude: lat, longitude: lon } = pos.coords;
-      localStorage.setItem('pysium_weather_pos', JSON.stringify({ lat, lon }));
-      loading.querySelector('span').textContent = 'Loading weather…';
-      await loadWeather(lat, lon);
-    } catch (e) {
-      loading.querySelector('span').textContent = e.code === 1 ? 'Location denied' : 'Unavailable';
-    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude: lat, longitude: lon } = pos.coords;
+        localStorage.setItem('pysium_weather_pos', JSON.stringify({ lat, lon }));
+        loading.querySelector('span').textContent = 'Loading…';
+        loadWeather(lat, lon).catch(() => {
+          loading.querySelector('span').textContent = 'Unavailable';
+        });
+      },
+      err => {
+        loading.querySelector('span').textContent = err.code === 1 ? 'Location denied' : 'Unavailable';
+      },
+      { timeout: 10000 }
+    );
   });
 }
 
 // ── BATTERY ───────────────────────────────────────────────────────────
-async function initBattery() {
+function initBattery() {
   if (!navigator.getBattery) return;
-  try {
-    const bat = await navigator.getBattery();
+  navigator.getBattery().then(bat => {
     function update() {
       const pct = Math.round(bat.level * 100);
       document.getElementById('batt-pct').textContent    = pct + '%';
       document.getElementById('batt-status').textContent = bat.charging ? '⚡ Charging' : (pct <= 20 ? '⚠ Low' : 'Battery');
       const fill = document.getElementById('batt-fill');
       if (fill) {
-        // SVG inner cavity is exactly 31px wide at x=2.5
         fill.setAttribute('width', parseFloat((bat.level * 31).toFixed(2)));
         fill.setAttribute('fill', pct <= 20 ? '#f87171' : pct <= 50 ? '#fbbf24' : '#6ee7b7');
       }
@@ -343,7 +353,7 @@ async function initBattery() {
     update();
     bat.addEventListener('levelchange', update);
     bat.addEventListener('chargingchange', update);
-  } catch {}
+  }).catch(() => {});
 }
 
 // ── PANELS ────────────────────────────────────────────────────────────
@@ -357,107 +367,118 @@ function closeAllPanels() {
 }
 
 // ── EARLY CLOAK ───────────────────────────────────────────────────────
-;(function () {
+(function () {
   try {
     const s = JSON.parse(localStorage.getItem('pysium_cloak') || '{}');
     if (s.enabled !== false && s.autoCloak !== false)
       document.title = s.title || CLOAK_DEFAULTS.title;
   } catch {}
-})();
+}());
 
-// ── INIT ──────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-  initScramjet();
+// ── BOOT ──────────────────────────────────────────────────────────────
+// Scripts are at end of <body> so DOM is already ready — no DOMContentLoaded needed
+initScramjet();
 
-  document.getElementById('engine-select').value   = SEARCH_ENGINE;
-  document.getElementById('panic-url-input').value = PANIC_URL;
-  loadCloakSettings();
-  initBattery();
-  initWeather();
+document.getElementById('engine-select').value   = SEARCH_ENGINE;
+document.getElementById('panic-url-input').value = PANIC_URL;
+loadCloakSettings();
+initBattery();
+initWeather();
 
-  // Nav
-  document.getElementById('home-btn').addEventListener('click', goHome);
-  document.getElementById('back-btn').addEventListener('click', goBack);
-  document.getElementById('forward-btn').addEventListener('click', goForward);
-  document.getElementById('reload-btn').addEventListener('click', reloadTab);
-  document.getElementById('address-bar').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); navigateTo(e.target.value); }
-  });
-
-  // Home search
-  document.getElementById('sj-form').addEventListener('submit', e => e.preventDefault());
-  document.getElementById('sj-address').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); const v = e.target.value.trim(); if (v) { navigateTo(v); e.target.value = ''; } }
-  });
-
-  // Shortcuts
-  document.querySelectorAll('.shortcut').forEach(a => {
-    a.addEventListener('click', e => { e.preventDefault(); if (a.dataset.url) navigateTo(a.dataset.url); });
-  });
-
-  // Tabs
-  document.getElementById('new-tab-btn').addEventListener('click', () => createTab());
-
-  // Fullscreen
-  const fsBtn = document.getElementById('fullscreen-btn');
-  fsBtn.addEventListener('click', () => {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
-    else document.exitFullscreen?.();
-  });
-  document.addEventListener('fullscreenchange', () => {
-    fsBtn.innerHTML = document.fullscreenElement
-      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/></svg>`
-      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>`;
-  });
-
-  // Panic
-  const triggerPanic = () => window.location.replace(PANIC_URL);
-  document.getElementById('panic-btn').addEventListener('click', triggerPanic);
-  document.addEventListener('keydown', e => { if (e.altKey && e.key === 'x') triggerPanic(); });
-
-  // Settings panel
-  document.getElementById('settings-fab').addEventListener('click', () => openPanel('settings-panel'));
-  document.getElementById('overlay').addEventListener('click', closeAllPanels);
-  document.querySelectorAll('.panel-close').forEach(b => b.addEventListener('click', closeAllPanels));
-  document.querySelectorAll('.stab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.stab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.stab-pane').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById('stab-' + btn.dataset.tab).classList.add('active');
-    });
-  });
-  document.querySelectorAll('.preset-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.getElementById('cloak-title').value       = btn.dataset.title;
-      document.getElementById('cloak-favicon-url').value = btn.dataset.favicon;
-    });
-  });
-  document.getElementById('cloak-apply').addEventListener('click', () => { saveCloakSettings(); closeAllPanels(); });
-  document.getElementById('cloak-toggle').addEventListener('change', function () {
-    cloakEnabled = this.checked;
-    if (!cloakEnabled) { document.title = 'Pysium'; document.getElementById('cloak-favicon').href = '/favicon.ico'; }
-    else applyCloak(document.getElementById('cloak-title').value.trim() || CLOAK_DEFAULTS.title,
-                    document.getElementById('cloak-favicon-url').value.trim() || CLOAK_DEFAULTS.favicon);
-  });
-  document.getElementById('ab-cloak-btn').addEventListener('click', () => {
-    const title = document.getElementById('cloak-title').value.trim() || CLOAK_DEFAULTS.title;
-    const fav   = document.getElementById('cloak-favicon-url').value.trim() || CLOAK_DEFAULTS.favicon;
-    const w = window.open('about:blank', '_blank');
-    if (!w) { alert('Allow popups for this site first.'); return; }
-    w.document.write(`<!doctype html><html><head><title>${title}</title><link rel="icon" href="${fav}"/><style>*{margin:0;padding:0;border:none;overflow:hidden}html,body,iframe{width:100%;height:100%;display:block}</style></head><body><iframe src="${location.href}" allow="fullscreen" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"></iframe></body></html>`);
-    w.document.close();
-  });
-  document.getElementById('panic-save').addEventListener('click', () => {
-    const url = document.getElementById('panic-url-input').value.trim();
-    if (url) { PANIC_URL = url; localStorage.setItem('pysium_panic', url); }
-    closeAllPanels();
-  });
-  document.getElementById('engine-select').addEventListener('change', function () {
-    SEARCH_ENGINE = this.value; localStorage.setItem('pysium_engine', this.value);
-  });
-
-  // Open first tab
-  createTab();
-  updateNavButtons();
+// Nav
+document.getElementById('home-btn').addEventListener('click', goHome);
+document.getElementById('back-btn').addEventListener('click', goBack);
+document.getElementById('forward-btn').addEventListener('click', goForward);
+document.getElementById('reload-btn').addEventListener('click', reloadTab);
+document.getElementById('address-bar').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); navigateTo(this.value); }
 });
+
+// Home search
+document.getElementById('sj-form').addEventListener('submit', function(e) { e.preventDefault(); });
+document.getElementById('sj-address').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    var v = this.value.trim();
+    if (v) { navigateTo(v); this.value = ''; }
+  }
+});
+
+// Shortcuts
+document.querySelectorAll('.shortcut').forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (a.dataset.url) navigateTo(a.dataset.url);
+  });
+});
+
+// Tabs
+document.getElementById('new-tab-btn').addEventListener('click', function() { createTab(); });
+
+// Fullscreen
+var fsBtn = document.getElementById('fullscreen-btn');
+fsBtn.addEventListener('click', function() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+  } else {
+    document.exitFullscreen && document.exitFullscreen();
+  }
+});
+document.addEventListener('fullscreenchange', function() {
+  fsBtn.innerHTML = document.fullscreenElement
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>';
+});
+
+// Panic
+document.getElementById('panic-btn').addEventListener('click', function() { window.location.replace(PANIC_URL); });
+document.addEventListener('keydown', function(e) { if (e.altKey && e.key === 'x') window.location.replace(PANIC_URL); });
+
+// Settings
+document.getElementById('settings-fab').addEventListener('click', function() { openPanel('settings-panel'); });
+document.getElementById('overlay').addEventListener('click', closeAllPanels);
+document.querySelectorAll('.panel-close').forEach(function(b) { b.addEventListener('click', closeAllPanels); });
+document.querySelectorAll('.stab-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.stab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.stab-pane').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('stab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+document.querySelectorAll('.preset-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.getElementById('cloak-title').value       = btn.dataset.title;
+    document.getElementById('cloak-favicon-url').value = btn.dataset.favicon;
+  });
+});
+document.getElementById('cloak-apply').addEventListener('click', function() { saveCloakSettings(); closeAllPanels(); });
+document.getElementById('cloak-toggle').addEventListener('change', function() {
+  cloakEnabled = this.checked;
+  if (!cloakEnabled) { document.title = 'Pysium'; document.getElementById('cloak-favicon').href = '/favicon.ico'; }
+  else applyCloak(
+    document.getElementById('cloak-title').value.trim() || CLOAK_DEFAULTS.title,
+    document.getElementById('cloak-favicon-url').value.trim() || CLOAK_DEFAULTS.favicon
+  );
+});
+document.getElementById('ab-cloak-btn').addEventListener('click', function() {
+  var title = document.getElementById('cloak-title').value.trim() || CLOAK_DEFAULTS.title;
+  var fav   = document.getElementById('cloak-favicon-url').value.trim() || CLOAK_DEFAULTS.favicon;
+  var w = window.open('about:blank', '_blank');
+  if (!w) { alert('Allow popups first.'); return; }
+  w.document.write('<!doctype html><html><head><title>' + title + '</title><link rel="icon" href="' + fav + '"/><style>*{margin:0;padding:0;border:none;overflow:hidden}html,body,iframe{width:100%;height:100%;display:block}</style></head><body><iframe src="' + location.href + '" allow="fullscreen" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"></iframe></body></html>');
+  w.document.close();
+});
+document.getElementById('panic-save').addEventListener('click', function() {
+  var url = document.getElementById('panic-url-input').value.trim();
+  if (url) { PANIC_URL = url; localStorage.setItem('pysium_panic', url); }
+  closeAllPanels();
+});
+document.getElementById('engine-select').addEventListener('change', function() {
+  SEARCH_ENGINE = this.value;
+  localStorage.setItem('pysium_engine', this.value);
+});
+
+// Open first tab
+createTab();
+updateNavButtons();
